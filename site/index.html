@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3ef">
+  <meta name="description" content="A small, private printing studio for your SWS-PT1 thermal printer. Print text and photos directly over Bluetooth.">
+  <title>ThermPrint — your little print studio</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="ThermPrint home"><img src="./icon.svg" alt="" width="34" height="34">ThermPrint<span class="beta">BETA</span></a>
+    <span class="privacy"><span aria-hidden="true">◈</span> Just you and your printer</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">THE LITTLE PRINT STUDIO</p><h1>Big ideas. Small paper.</h1><p class="subtitle">Turn a note or a photo into something you can hold.</p></div>
+      <div class="printer-card">
+        <div class="printer-heading"><span id="connection-dot" class="dot"></span><strong id="printer-name">No printer connected</strong><span id="battery" class="battery"></span></div>
+        <p id="connection-hint">Power on your SWS-PT1 to get started.</p>
+        <button id="connect" class="button connect" type="button"><span aria-hidden="true">ᛒ</span> Connect printer</button>
+      </div>
+    </section>
+    <div id="compatibility" class="notice" role="status" hidden></div>
+    <div class="workspace">
+      <section class="editor panel" aria-labelledby="editor-title">
+        <div class="panel-heading"><h2 id="editor-title"><span class="step">01</span> Create your print</h2><span class="small-label">384 DOTS WIDE</span></div>
+        <fieldset id="editor-controls">
+          <legend class="sr-only">Print content and appearance</legend>
+          <div class="tabs" role="tablist" aria-label="Content type">
+            <button id="text-tab" role="tab" aria-selected="true" aria-controls="text-panel" type="button">Aa <span>Text</span></button>
+            <button id="image-tab" role="tab" aria-selected="false" aria-controls="image-panel" tabindex="-1" type="button">▧ <span>Image</span></button>
+          </div>
+          <div id="text-panel" role="tabpanel" aria-labelledby="text-tab">
+            <label for="text" class="label">A note, a list, a little reminder</label>
+            <textarea id="text" spellcheck="true" maxlength="6000" placeholder="What would you like to print?">A little reminder
+
+Make something.
+Take a break.
+Enjoy the small things.</textarea>
+            <div class="text-options">
+              <label class="control">Text size<select id="font-size"><option value="20">Small · 20</option><option value="26" selected>Medium · 26</option><option value="34">Large · 34</option><option value="44">Extra large · 44</option></select></label>
+              <label class="control">Alignment<select id="alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+              <label class="check bold-check"><input id="bold" type="checkbox"> <strong>Bold</strong></label>
+            </div>
+          </div>
+          <div id="image-panel" role="tabpanel" aria-labelledby="image-tab" hidden>
+            <label id="drop-zone" class="drop-zone" for="image-file"><span class="upload-symbol" aria-hidden="true">↥</span><strong>Give a photo a paper home</strong><span>Drop an image here, or choose a file</span><span class="file-label">Choose image</span><small>PNG, JPEG, WebP · up to 15 MB</small><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <p id="image-name" class="image-name">No image selected</p>
+          </div>
+          <div class="divider"></div>
+          <div class="adjustment-heading"><label for="threshold" class="label">Ink balance</label><output id="threshold-value" for="threshold">160</output></div>
+          <input id="threshold" type="range" min="50" max="230" value="160">
+          <div class="range-labels"><span>Lighter</span><span>Darker</span></div>
+          <label class="check dither"><input id="dither" type="checkbox"><span><strong>Photo dithering</strong><small>Use tiny dots to bring out shades and detail.</small></span></label>
+        </fieldset>
+        <p class="local-note"><span aria-hidden="true">↳</span> Your text and images stay in this browser.</p>
+      </section>
+      <section class="preview panel" aria-labelledby="preview-title">
+        <div class="panel-heading"><h2 id="preview-title"><span class="step">02</span> On the paper</h2><button id="download" type="button" class="text-button" title="Download the exact monochrome print as a PNG">Save PNG <span aria-hidden="true">↗</span></button></div>
+        <div class="preview-stage">
+          <div class="paper-width"><span></span>48 mm printable width<span></span></div>
+          <div class="paper" id="paper"><canvas id="preview-canvas" width="384" height="320" role="img" aria-label="Monochrome preview of your print"></canvas></div>
+          <p id="preview-empty" class="empty-state" hidden>Add some text to see your print.</p>
+        </div>
+        <div class="print-footer">
+          <div class="print-meta"><span id="dimensions">384 × 320 dots</span><span id="paper-length">About 40 mm long</span></div>
+          <p id="preview-error" class="error-text" role="alert" hidden></p>
+          <progress id="progress" max="100" value="0" aria-label="Print transfer progress" hidden></progress>
+          <button id="print" type="button" class="button primary" disabled><span aria-hidden="true">↳</span> Print this</button>
+          <button id="stop" type="button" class="button stop" hidden>Stop sending</button>
+          <p id="job-status" class="job-status" role="status" aria-live="polite">Connect a printer when you’re ready.</p>
+        </div>
+      </section>
+    </div>
+    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview is the exact black-and-white image sent to the printer. Prints include a little blank paper at the end for tearing. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
+    <details class="diagnostics"><summary>Connection log</summary><pre id="log" aria-label="Connection log">Ready to connect.</pre></details>
+  </main>
+  <footer class="page-footer"><span>Made for little moments on paper.</span><a href="https://github.com/rawsock/thermprint" target="_blank" rel="noopener noreferrer">ThermPrint on GitHub ↗</a></footer>
+  <noscript>This app needs JavaScript to render prints and connect over Bluetooth.</noscript>
+</body>
+</html>

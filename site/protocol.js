@@ -1,0 +1,227 @@
+// SWS-PT1 / Funny Print protocol, validated against a physical TEDi printer.
+export const SERVICE = '0000ffe6-0000-1000-8000-00805f9b34fb';
+export const WRITE = '0000ffe1-0000-1000-8000-00805f9b34fb';
+export const NOTIFY = '0000ffe2-0000-1000-8000-00805f9b34fb';
+export const WIDTH = 384;
+export const MAX_HEIGHT = 1536;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+export function authCRC(mac) {
+  if (mac.length !== 6) throw new Error('Invalid printer identity.');
+  let crc = 0;
+  for (const byte of [0, ...mac]) {
+    crc ^= byte << 8;
+    for (let bit = 0; bit < 8; bit++) crc = ((crc << 1) ^ ((crc & 0x8000) ? 0x1021 : 0)) & 0xffff;
+  }
+  return crc;
+}
+
+export function rasterPackets(ink, height) {
+  if (!Number.isInteger(height) || height < 1 || height > MAX_HEIGHT || ink.length !== WIDTH * height) {
+    throw new Error(`Prints must be 384 dots wide and at most ${MAX_HEIGHT} dots tall.`);
+  }
+  const packets = Array.from({ length: Math.ceil(height / 2) }, (_, index) => {
+    const frame = new Uint8Array(100);
+    frame.set([0x55, index >> 8, index & 255]);
+    return frame;
+  });
+  for (let i = 0; i < ink.length; i++) {
+    if (ink[i]) packets[Math.floor(i / 768)][3 + (Math.floor(i / 8) % 96)] |= 0x80 >> (i % 8);
+  }
+  return packets;
+}
+
+export function marker(count, end = false) {
+  return Uint8Array.of(0x5a, 0x04, count >> 8, count & 255, Number(end), 0);
+}
+
+export function parseStatus(frame) {
+  if (frame[0] !== 0x5a || frame[1] !== 0x02) return null;
+  if (frame.length < 8) throw new Error('Incomplete printer status. Reconnect and try again.');
+  return {
+    battery: Math.min(100, frame[2]),
+    error: frame[3] ? 'Load paper and close the printer lid.' :
+      frame[5] ? 'The printer is hot. Let it cool before printing.' :
+      frame[6] ? 'Charge the printer before printing.' : null,
+  };
+}
+
+export class Inbox {
+  frames = [];
+  error = null;
+  push(frame) { this.frames.push(frame); }
+  fail(error) { this.error = error; }
+  check() { if (this.error) throw this.error; }
+  async opcode(opcode, timeout = 6000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      this.check();
+      const frame = this.frames.shift();
+      if (frame) {
+        const status = parseStatus(frame);
+        if (status?.error) throw new Error(status.error);
+        if (frame[0] === 0x5a && frame[1] === opcode) return frame;
+      } else await sleep(15);
+    }
+    throw new Error('The printer did not reply in time. Power it on and reconnect.');
+  }
+}
+
+export async function authenticate(send, inbox) {
+  await send(Uint8Array.of(0x5a, 1, ...Array(10).fill(0)));
+  const info = await inbox.opcode(1);
+  if (info.length < 10) throw new Error('Incomplete printer identity.');
+  // Web Bluetooth hides the MAC; the printer supplies it in its hello reply.
+  const crc = authCRC(info.slice(4, 10));
+  await send(Uint8Array.of(0x5a, 0x0a, ...Array(10).fill(0)));
+  const challenge = await inbox.opcode(0x0a);
+  if (challenge.length !== 12 || !challenge.slice(2).every(byte => byte === (crc & 255))) {
+    throw new Error('This printer uses a different authentication protocol.');
+  }
+  await send(Uint8Array.of(0x5a, 0x0b, ...Array(10).fill(crc >> 8)));
+  const answer = await inbox.opcode(0x0b);
+  if (answer[2] !== 1) throw new Error('Printer authentication was rejected.');
+}
+
+export async function transfer(send, inbox, packets, {
+  onProgress = () => {}, onMessage = () => {}, delay = 40,
+  timeout = packets.length * 300 + 20000, settle = 100,
+} = {}) {
+  let index = 0, held = false, retries = 0;
+  const deadline = Date.now() + timeout;
+  await send(marker(packets.length));
+  await sleep(settle);
+  while (true) {
+    inbox.check();
+    if (Date.now() > deadline) throw new Error('Print timed out. Reconnect before trying again; part may have printed.');
+    let finished = false;
+    while (inbox.frames.length) {
+      const frame = inbox.frames.shift();
+      const status = parseStatus(frame);
+      if (status?.error) throw new Error(status.error);
+      if (frame[0] !== 0x5a) continue;
+      switch (frame[1]) {
+        case 0x08:
+          held = true;
+          delay = Math.min(100, delay * 1.5);
+          onMessage('Printer paused. Waiting for it to resume…');
+          break;
+        case 0x05: {
+          if (frame.length < 4) throw new Error('Incomplete retry request.');
+          const requested = ((frame[2] << 8) | frame[3]) - 1;
+          if (requested < 0 || requested >= packets.length || requested > index) throw new Error('Invalid packet retry request.');
+          if (++retries > 10) throw new Error('Bluetooth connection is unstable. Move closer and reconnect.');
+          index = requested;
+          held = false;
+          onMessage('Resuming transfer…');
+          break;
+        }
+        case 0x07:
+          onMessage('Printer cooling down…');
+          await sleep(100);
+          break;
+        case 0x06:
+          if (index !== packets.length) throw new Error('Printer ended the transfer early.');
+          if (frame.length < 4 || ((frame[2] << 8) | frame[3]) !== packets.length) throw new Error('Printer acknowledged a different job length.');
+          finished = true;
+          break;
+      }
+    }
+    if (finished) break;
+    if (held || index === packets.length) { await sleep(20); continue; }
+    await send(packets[index]);
+    onProgress(++index, packets.length);
+    await sleep(delay);
+  }
+  await send(marker(packets.length, true));
+  // The transfer acknowledgement is authoritative; a footer echo is optional.
+  onProgress(packets.length, packets.length);
+}
+
+async function bounded(promise, timeout = 10000) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Bluetooth operation timed out. Reconnect the printer.')), timeout);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+export class Printer {
+  constructor({ onStatus = () => {}, onDisconnect = () => {}, onLog = () => {} } = {}) {
+    Object.assign(this, { onStatus, onDisconnect, onLog, ready: false, busy: false });
+  }
+
+  async connect(bluetooth = globalThis.navigator?.bluetooth) {
+    if (!bluetooth) throw new Error('Use Chrome on Android, or Chrome / Edge on Windows or macOS.');
+    // Must run directly from the Connect button gesture. This unit advertises no service UUIDs.
+    const device = await bluetooth.requestDevice({ filters: [{ namePrefix: 'SWS-PT1' }], optionalServices: [SERVICE] });
+    this.device = device;
+    this.inbox = new Inbox();
+    this.status = null;
+    this.disconnected = () => {
+      this.ready = false;
+      this.inbox.fail(new Error('Printer disconnected. Power it on and reconnect.'));
+      this.onDisconnect();
+    };
+    device.addEventListener('gattserverdisconnected', this.disconnected);
+    try {
+      this.onLog('Connecting to ' + (device.name || 'SWS-PT1'));
+      const server = await bounded(device.gatt.connect());
+      this.inbox.check();
+      const service = await bounded(server.getPrimaryService(SERVICE));
+      this.writer = await bounded(service.getCharacteristic(WRITE));
+      this.reader = await bounded(service.getCharacteristic(NOTIFY));
+      if (!this.writer.properties.writeWithoutResponse) throw new Error('Printer does not support the expected Bluetooth writes.');
+      this.notified = event => {
+        const value = event.target.value;
+        const frame = new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice();
+        try {
+          const status = parseStatus(frame);
+          if (status) { this.status = status; this.onStatus(status); }
+          this.inbox.push(frame);
+        } catch (error) { this.inbox.fail(error); }
+      };
+      this.reader.addEventListener('characteristicvaluechanged', this.notified);
+      await bounded(this.reader.startNotifications());
+      await authenticate(frame => this.send(frame), this.inbox);
+      if (!this.status) await this.inbox.opcode(0x02, 5000);
+      this.inbox.check();
+      if (this.status?.error) throw new Error(this.status.error);
+      this.ready = true;
+      this.onLog('Authenticated. Printer ready.');
+      return device.name || 'SWS-PT1';
+    } catch (error) { this.disconnect(); throw error; }
+  }
+
+  async send(frame) {
+    this.inbox.check();
+    if (!this.device?.gatt.connected) throw new Error('Printer is disconnected.');
+    // Preserve the 100-byte application packet; splitting it changes the protocol.
+    await bounded(this.writer.writeValueWithoutResponse(frame));
+    this.inbox.check();
+  }
+
+  async print(ink, height, callbacks) {
+    if (this.busy) throw new Error('A print is already in progress.');
+    if (!this.ready) throw new Error('Connect the printer first.');
+    if (this.status?.error) throw new Error(this.status.error);
+    const packets = rasterPackets(ink, height);
+    this.inbox.frames.length = 0;
+    this.busy = true;
+    try {
+      await transfer(frame => this.send(frame), this.inbox, packets, callbacks);
+      this.onLog('Printer acknowledged the complete image.');
+    } catch (error) { this.disconnect(); throw error; }
+    finally { this.busy = false; }
+  }
+
+  disconnect() {
+    this.ready = false;
+    this.inbox?.fail(new Error('Transfer stopped. Buffered lines may still print.'));
+    this.reader?.removeEventListener('characteristicvaluechanged', this.notified);
+    this.device?.removeEventListener('gattserverdisconnected', this.disconnected);
+    this.device?.gatt.disconnect();
+    this.onDisconnect();
+  }
+}
