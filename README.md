@@ -1,5 +1,7 @@
 # ThermPrint
 
+**Open the app: https://thermprint.github.io/**
+
 A small, static web app for the **TEDi SWS-PT1** Bluetooth thermal printer used by Funny Print. Compose text, import a photo, generate a QR code, find free graphics, or draw your own image, then print directly from the browser. Print content stays on your device. Graphics searches and selected image requests go directly to Wikimedia Commons; there is no app backend, account, or analytics.
 
 ## Use it
@@ -34,9 +36,19 @@ npm test
 
 ## GitHub Pages
 
-The remote is `https://github.com/rawsock/thermprint`, and `main` tracks `origin/main`. In the repository's **Settings → Pages**, choose **GitHub Actions** as the source, then push `main` or run the **Test and deploy to GitHub Pages** workflow. It tests the app and uploads only `site/`.
+The development upstream remains `https://github.com/rawsock/thermprint`, and `main` tracks `origin/main`. The branded site is published from `https://github.com/thermprint/thermprint.github.io`. Both repositories use **GitHub Actions** as the Pages source and the same **Test and deploy to GitHub Pages** workflow. It tests the app and uploads only `site/`.
 
-The expected URL is **https://rawsock.github.io/thermprint/** after a successful deployment. All asset paths are relative, so the repository subpath works without a build configuration.
+The primary URL is **https://thermprint.github.io/**. The original **https://rawsock.github.io/thermprint/** remains available. All asset paths are relative, so both the root and repository subpath work without a build configuration.
+
+This workspace has a `pages` remote for the organization repository, and two push URLs on `origin`, so `git push origin main` updates both repositories. For a fresh clone, configure the same behavior with:
+
+```sh
+git remote add pages https://github.com/thermprint/thermprint.github.io
+git remote set-url --add --push origin https://github.com/rawsock/thermprint
+git remote set-url --add --push origin https://github.com/thermprint/thermprint.github.io
+```
+
+Fetches still use the development upstream. Changes made through GitHub's editor or another checkout must also be pushed to both repositories; there is no cross-repository credential stored in Actions.
 
 ## Hardware and protocol
 
