@@ -5,7 +5,7 @@ import jsQR from 'jsqr';
 import { qrCanvas } from '../site/qr.js';
 import { monochrome, calibrateInk, preparePrint, DEFAULT_FEED_SCALE, imageCanvas, textCanvas, FEED, START_SPACE } from '../site/raster.js';
 import { drawStroke, canvasPoint, setupDrawing } from '../site/drawing.js';
-import { galleryResults, searchURL, commonsImageURL, searchGraphics, loadGraphic } from '../site/gallery.js';
+import { galleryResults, searchURL, commonsImageURL, searchGraphics, loadGraphic, isBlackWhiteArtwork } from '../site/gallery.js';
 
 globalThis.document = { createElement: tag => {
   assert.equal(tag, 'canvas');
@@ -149,10 +149,13 @@ const sample = { query: { pages: [
 
 test('graphics search encodes query, uses CORS and keeps ranked images with license/source metadata', () => {
   const url = new URL(searchURL('cat & flower', 18));
-  assert.equal(url.searchParams.get('gsrsearch'), 'cat & flower filetype:drawing');
+  assert.equal(url.searchParams.get('gsrsearch'), 'cat & flower');
   assert.equal(url.searchParams.get('origin'), '*');
   assert.equal(url.searchParams.get('gsroffset'), '18');
-  assert.equal(new URL(searchURL('cat', 0, false)).searchParams.get('gsrsearch'), 'cat');
+  assert.equal(new URL(searchURL('funny cat')).searchParams.get('gsrsearch'), 'funny cat');
+  const filteredQuery = new URL(searchURL('funny cat', 0, 'bitmaps')).searchParams.get('gsrsearch');
+  assert.ok(filteredQuery.split(' OR ').every(branch => branch.startsWith('funny cat ')));
+  assert.ok(!filteredQuery.includes('filetype:drawing'), 'raster artwork is included too');
   const result = galleryResults(sample);
   assert.deepEqual(result.items.map(item => item.id), ['9', '7']);
   assert.equal(result.items[1].license, 'CC BY-SA 4.0');
@@ -160,6 +163,58 @@ test('graphics search encodes query, uses CORS and keeps ranked images with lice
   assert.equal(result.next, 18);
   assert.equal(commonsImageURL('https://thumb.wikimedia.org.evil.example/test.png'), null);
   assert.equal(commonsImageURL('javascript:alert(1)'), null);
+});
+
+test('black-and-white filter accepts antialiased ink and transparent icons, but rejects color and gray shading', () => {
+  const canvas = createCanvas(100, 100), ctx = canvas.getContext('2d');
+  const accepts = () => isBlackWhiteArtwork(ctx.getImageData(0, 0, 100, 100).data, 100);
+  for (const background of ['white', 'transparent']) {
+    ctx.clearRect(0, 0, 100, 100);
+    ctx.fillStyle = background; ctx.fillRect(0, 0, 100, 100);
+    assert.equal(accepts(), false, 'blank images have no ink');
+    ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(50, 50, 25, 0, Math.PI * 2); ctx.fill();
+    assert.equal(accepts(), true, 'antialiased outlines are allowed');
+    ctx.fillStyle = '#999'; ctx.fillRect(40, 40, 20, 20);
+    assert.equal(accepts(), false, 'gray fills are not simple ink');
+  }
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 100, 100);
+  ctx.fillStyle = 'black'; ctx.fillRect(10, 10, 10, 10);
+  ctx.fillStyle = 'red'; ctx.fillRect(50, 50, 10, 10);
+  assert.equal(accepts(), false, 'white background does not hide a small colored icon');
+  ctx.fillStyle = '#330000'; ctx.fillRect(50, 50, 10, 10);
+  assert.equal(accepts(), false, 'dark colors are not mistaken for black');
+  const gradient = ctx.createLinearGradient(0, 0, 100, 0);
+  gradient.addColorStop(0, 'black'); gradient.addColorStop(1, 'white');
+  ctx.fillStyle = gradient; ctx.fillRect(0, 0, 100, 100);
+  assert.equal(accepts(), false, 'grayscale gradients are excluded');
+});
+
+test('artwork search checks thumbnails and continues past unsuitable results, preserving ranking and pagination', async t => {
+  let pages = 0, closed = 0;
+  const page = (id, color) => ({ pageid: id, index: id, title: `File:${color}.png`, imageinfo: [{ mime: 'image/png', thumburl: `https://upload.wikimedia.org/${color}.png`, extmetadata: { LicenseShortName: { value: 'CC0' } } }] });
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (String(url).startsWith('https://commons.wikimedia.org/w/api.php')) {
+      const offset = Number(new URL(url).searchParams.get('gsroffset'));
+      pages++;
+      return new Response(JSON.stringify({ query: { pages: offset === 0 ? [page(1, 'red')] : [page(2, 'black'), page(3, 'gray')] }, ...(offset === 0 ? { continue: { gsroffset: 18 } } : {}) }));
+    }
+    return new Response(String(url).split('/').at(-1).split('.')[0], { headers: { 'Content-Type': 'image/png' } });
+  });
+  globalThis.createImageBitmap = async blob => {
+    const canvas = createCanvas(100, 100), ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 100, 100);
+    ctx.fillStyle = await blob.text(); ctx.fillRect(25, 25, 50, 50);
+    canvas.close = () => closed++;
+    return canvas;
+  };
+  try {
+    const result = await searchGraphics('cat', { blackWhiteOnly: true });
+    assert.deepEqual(result.items.map(item => item.id), ['2']);
+    assert.equal(result.next, null);
+    assert.equal(pages, 4);
+    assert.equal(closed, 3);
+    await assert.rejects(searchGraphics('cat', { blackWhiteOnly: true, signal: AbortSignal.abort() }), { name: 'AbortError' });
+  } finally { delete globalThis.createImageBitmap; }
 });
 
 test('gallery fetch handles HTTP errors and imports the selected image without a manual download', async t => {
@@ -178,4 +233,21 @@ test('gallery fetch handles HTTP errors and imports the selected image without a
   assert.deepEqual(await loadGraphic(result.items[0]), { decoded: true, type: 'image/png' });
   await assert.rejects(loadGraphic({ thumbnail: 'http://example.com/x.png' }), /Unsupported/);
   delete globalThis.createImageBitmap;
+});
+
+test('filtered pagination keeps separate cursors and does not restart an exhausted artwork source', async t => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    const params = new URL(url).searchParams;
+    const type = params.get('gsrsearch').includes('filetype:drawing') ? 'vectors' : 'bitmaps';
+    const offset = Number(params.get('gsroffset'));
+    requests.push({ type, offset });
+    return new Response(JSON.stringify(type === 'bitmaps' && offset < 54 ? { continue: { gsroffset: offset + 18 } } : {}));
+  });
+  const first = await searchGraphics('cat', { blackWhiteOnly: true });
+  assert.deepEqual(first.next, { vectors: null, bitmaps: 54 });
+  const second = await searchGraphics('cat', { blackWhiteOnly: true, offset: first.next });
+  assert.equal(second.next, null);
+  assert.deepEqual(requests.filter(item => item.type === 'vectors').map(item => item.offset), [0]);
+  assert.deepEqual(requests.filter(item => item.type === 'bitmaps').map(item => item.offset), [0, 18, 36, 54]);
 });

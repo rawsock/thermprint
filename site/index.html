@@ -66,12 +66,14 @@ Enjoy the small things.</textarea>
             <form id="graphics-form">
               <label for="graphics-query" class="label">Find something to print</label>
               <div class="search-row"><input id="graphics-query" type="search" maxlength="160" placeholder="Try cat, flower, bicycle…" required><button id="graphics-search" class="button search-button" type="submit">Search</button></div>
-              <label class="check graphics-filter"><input id="graphics-drawings" type="checkbox" checked> Illustrations only</label>
+              <label class="check graphics-filter"><input id="graphics-bw" type="checkbox"> Black &amp; white artwork</label>
+              <p class="tab-hint">Narrow to icons, outlines and labels. Checks for black ink and white backgrounds, allowing smooth edges.</p>
             </form>
             <p class="tab-hint">Search Wikimedia Commons. Select a graphic to put it straight on the paper.</p>
             <p id="graphics-status" class="tab-hint" role="status" aria-live="polite">Your search is sent to Wikimedia; your print content stays here.</p>
             <div id="graphics-gallery" class="graphics-gallery" aria-label="Graphics search results"></div>
             <button id="graphics-more" type="button" class="button secondary" hidden>Load more</button>
+            <button id="graphics-broaden" type="button" class="button secondary" hidden>Search all images</button>
             <div id="graphics-selection" class="selected-graphic" hidden><strong id="graphics-selected-title"></strong><p id="graphics-credit"></p><a id="graphics-source" target="_blank" rel="noopener noreferrer">Source and reuse terms ↗</a><p class="tab-hint">Keep the creator credit and follow the linked license when sharing your print.</p></div>
           </div>
           <div id="draw-panel" role="tabpanel" aria-labelledby="draw-tab" hidden>
@@ -112,9 +114,9 @@ Enjoy the small things.</textarea>
             <div class="range-labels"><span>Softer</span><span>Stronger</span></div>
             <label class="check detail-check"><input id="sharpen" type="checkbox" checked><span>Enhance fine detail</span></label>
           </div>
+          <label class="control end-space-control">End spacing<select id="end-space"><option value="0">None</option><option value="8">1 mm</option><option value="16" selected>2 mm</option><option value="32">4 mm</option><option value="64">8 mm</option></select></label>
           <details class="calibration"><summary>Paper-feed calibration</summary><label for="feed-scale" class="label">Vertical correction <output id="feed-scale-value">113.7%</output></label><input id="feed-scale" type="range" min="80" max="140" step="0.1" value="113.7"><p class="tab-hint">Corrects the printer’s vertical squeeze so circles stay round. Applies to every tab. Use 100% for no correction.</p><button id="feed-reset" class="text-button" type="button">Reset to measured correction</button></details>
         </fieldset>
-          <label class="control end-space-control">End spacing<select id="end-space"><option value="0">None</option><option value="8">1 mm</option><option value="16" selected>2 mm</option><option value="32">4 mm</option><option value="64">8 mm</option></select></label>
         </div>
         <div class="print-footer">
           <div class="print-meta"><span id="dimensions">384 × 320 dots</span><span id="paper-length">About 40 mm long</span></div>

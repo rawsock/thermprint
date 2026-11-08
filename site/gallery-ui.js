@@ -2,7 +2,7 @@ import { searchGraphics, loadGraphic } from './gallery.js';
 
 export function setupGallery({ onSelect, onLoading }) {
   const $ = id => document.getElementById(id);
-  let next = null, query = '', drawingsOnly = true, selected = null;
+  let next = null, query = '', blackWhiteOnly = false, selected = null;
   let searchController, imageController;
   const status = text => { $('graphics-status').textContent = text; };
   const setSelection = () => {
@@ -38,19 +38,20 @@ export function setupGallery({ onSelect, onLoading }) {
   const search = async more => {
     searchController?.abort();
     const controller = searchController = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
     if (!more) {
       query = $('graphics-query').value.trim();
-      drawingsOnly = $('graphics-drawings').checked;
+      blackWhiteOnly = $('graphics-bw').checked;
       $('graphics-gallery').replaceChildren();
       next = null;
     }
-    if (!query) { clearTimeout(timer); return; }
+    const timer = setTimeout(() => controller.abort(), blackWhiteOnly ? 45000 : 20000);
     $('graphics-more').hidden = true;
+    $('graphics-broaden').hidden = true;
+    if (!query) { clearTimeout(timer); $('graphics-search').textContent = 'Search'; status('Enter a few words to find images.'); return; }
     $('graphics-search').textContent = 'Searching…';
-    status('Searching Wikimedia Commons…');
+    status(blackWhiteOnly ? 'Finding artwork and checking for black ink on white…' : 'Searching Wikimedia Commons…');
     try {
-      const result = await searchGraphics(query, { offset: more ? next : 0, drawingsOnly, signal: controller.signal });
+      const result = await searchGraphics(query, { offset: more ? next : 0, blackWhiteOnly, signal: controller.signal });
       if (controller !== searchController) return;
       for (const item of result.items) {
         if (Array.from($('graphics-gallery').children).some(card => card.dataset.id === item.id)) continue;
@@ -77,7 +78,11 @@ export function setupGallery({ onSelect, onLoading }) {
       next = result.next;
       $('graphics-more').hidden = next === null;
       const count = $('graphics-gallery').children.length;
-      status(count ? `${count} graphics. Select one to preview and print.` : 'No graphics found. Try fewer words, or turn off Illustrations only.');
+      $('graphics-broaden').hidden = count > 0 || !blackWhiteOnly;
+      const resultMessage = count ? `${count} graphics. Select one to preview and print.` : blackWhiteOnly ?
+        `No simple black-and-white artwork in these results. ${next !== null ? 'Load more, try fewer words, or search all images.' : 'Try fewer words, or search all images.'}` :
+        'No images found. Try fewer words, or a broader subject such as cat.';
+      status(resultMessage + (result.unavailable ? ' Some previews could not be checked.' : ''));
     } catch (error) {
       if (controller === searchController) status(controller.signal.aborted ? 'Search timed out. Try again.' : error.message);
     } finally {
@@ -87,4 +92,6 @@ export function setupGallery({ onSelect, onLoading }) {
   };
   $('graphics-form').addEventListener('submit', event => { event.preventDefault(); search(false); });
   $('graphics-more').addEventListener('click', () => search(true));
+  $('graphics-bw').addEventListener('change', () => search(false));
+  $('graphics-broaden').addEventListener('click', () => { $('graphics-bw').checked = false; search(false); });
 }
