@@ -46,9 +46,11 @@ const printer = new Printer({
 
 function updateButtons() {
   $('connect').disabled = !supported || connecting || printing;
-  $('connect').textContent = connecting ? 'Connecting…' : printer.ready ? 'Disconnect' : 'ᛒ  Connect printer';
+  $('connect').textContent = connecting ? 'Connecting…' : printer.ready ? 'Disconnect' : printer.device ? 'ᛒ  Reconnect printer' : 'ᛒ  Connect printer';
+  $('choose-printer').hidden = !printer.device;
+  $('choose-printer').disabled = connecting || printing;
   $('connection-dot').classList.toggle('connected', printer.ready);
-  $('print').disabled = !printer.ready || Boolean(printer.status?.error) || !preview || printing;
+  $('print').disabled = !printer.ready || Boolean(printer.status?.error) || !preview || printing || connecting;
   $('print').textContent = printing ? 'Printing…' : '↳  Print this';
   $('stop').hidden = !printing;
   $('editor-controls').disabled = printing;
@@ -129,13 +131,14 @@ async function loadImage(file) {
   }
 }
 
-$('connect').addEventListener('click', async () => {
-  if (printer.ready) { printer.disconnect(); return; }
+async function connectPrinter(chooseNew = false) {
+  if (printer.ready && !chooseNew) { printer.disconnect(); return; }
   connecting = true;
-  message('Choose your SWS-PT1 in the Bluetooth dialog.');
+  message(printer.device && !chooseNew ? 'Reconnecting to your printer…' : 'Choose your SWS-PT1 in the Bluetooth dialog.');
   updateButtons();
   try {
-    const name = await printer.connect();
+    const name = await printer.connect(navigator.bluetooth, { chooseNew });
+    try { localStorage.setItem('thermprint-device-id', printer.device.id); } catch { /* Optional persistence. */ }
     $('printer-name').textContent = name;
     $('connection-hint').textContent = 'Connected over Bluetooth. All set.';
     message('Ready when you are.');
@@ -144,7 +147,9 @@ $('connect').addEventListener('click', async () => {
     message(reason, 'error');
     log(reason);
   } finally { connecting = false; updateButtons(); }
-});
+}
+$('connect').addEventListener('click', () => connectPrinter());
+$('choose-printer').addEventListener('click', () => connectPrinter(true));
 
 $('print').addEventListener('click', async () => {
   if (!preview || printing) return;
@@ -224,3 +229,11 @@ if (!supported) {
   message('Create a preview here, or open a supported browser to print.');
 }
 render();
+if (supported) {
+  let preferredId;
+  try { preferredId = localStorage.getItem('thermprint-device-id'); } catch { /* Optional persistence. */ }
+  printer.restoreDevice(navigator.bluetooth, preferredId).then(restored => {
+    if (restored && !printer.ready && !connecting) $('connection-hint').textContent = 'Printer remembered. Power it on and reconnect.';
+    updateButtons();
+  });
+}

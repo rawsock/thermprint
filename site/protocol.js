@@ -152,10 +152,24 @@ export class Printer {
     Object.assign(this, { onStatus, onDisconnect, onLog, ready: false, busy: false });
   }
 
-  async connect(bluetooth = globalThis.navigator?.bluetooth) {
+  async restoreDevice(bluetooth = globalThis.navigator?.bluetooth, preferredId = null) {
+    if (this.device || !bluetooth?.getDevices) return Boolean(this.device);
+    try {
+      const devices = (await bounded(bluetooth.getDevices(), 2500)).filter(device => device.name?.startsWith('SWS-PT1'));
+      if (!this.device) this.device = devices.find(device => device.id === preferredId) || (devices.length === 1 ? devices[0] : null);
+    } catch { /* Some browsers cannot restore site permissions across page loads. */ }
+    return Boolean(this.device);
+  }
+
+  async connect(bluetooth = globalThis.navigator?.bluetooth, { chooseNew = false } = {}) {
     if (!bluetooth) throw new Error('Use Chrome on Android, or Chrome / Edge on Windows or macOS.');
-    // Must run directly from the Connect button gesture. This unit advertises no service UUIDs.
-    const device = await bluetooth.requestDevice({ filters: [{ namePrefix: 'SWS-PT1' }], optionalServices: [SERVICE] });
+    if (this.busy) throw new Error('Wait for the current print to finish.');
+    if (this.ready && !chooseNew) return this.device.name || 'SWS-PT1';
+    // Only the chooser requires a button gesture. A retained permission can reconnect directly.
+    // This unit advertises no service UUIDs, so request FFE6 as an optional service.
+    const device = !chooseNew && this.device ? this.device :
+      await bluetooth.requestDevice({ filters: [{ namePrefix: 'SWS-PT1' }], optionalServices: [SERVICE] });
+    if (this.inbox) this.disconnect();
     this.device = device;
     this.inbox = new Inbox();
     this.status = null;
@@ -191,7 +205,11 @@ export class Printer {
       this.ready = true;
       this.onLog('Authenticated. Printer ready.');
       return device.name || 'SWS-PT1';
-    } catch (error) { this.disconnect(); throw error; }
+    } catch (error) {
+      this.disconnect();
+      if (error.name === 'SecurityError' || error.name === 'NotAllowedError') this.device = null;
+      throw error;
+    }
   }
 
   async send(frame) {

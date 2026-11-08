@@ -81,6 +81,7 @@ test('paper, heat, low voltage, malformed status and retry failures stop transfe
 function mockBluetooth({ disconnectOnRaster = false } = {}) {
   const device = new EventTarget();
   device.name = 'SWS-PT1';
+  device.id = 'saved-printer';
   const reader = new EventTarget();
   const sent = [];
   let notifications = false, count = 0;
@@ -154,6 +155,56 @@ test('Bluetooth disconnect stops printing without completion or automatic retry'
   assert.ok(!mock.sent.includes('5a0400020100'));
   assert.equal(printer.ready, false);
   assert.equal(printer.busy, false);
+});
+
+test('reconnection reuses permission and cleans up notification listeners, with an explicit chooser when needed', async t => {
+  const mock = mockBluetooth();
+  const chooser = t.mock.method(mock.bluetooth, 'requestDevice');
+  let statuses = 0;
+  const printer = new Printer({ onStatus: () => statuses++ });
+  await printer.connect(mock.bluetooth);
+  printer.disconnect();
+  await printer.connect(mock.bluetooth);
+  mock.device.gatt.disconnect();
+  await printer.connect(mock.bluetooth);
+  assert.equal(chooser.mock.callCount(), 1);
+  assert.equal(statuses, 3, 'exactly one status callback per authentication');
+  await printer.print(new Uint8Array(384 * 4), 4, options);
+  await printer.connect(mock.bluetooth, { chooseNew: true });
+  assert.equal(chooser.mock.callCount(), 2);
+  assert.equal(statuses, 4);
+  printer.disconnect();
+});
+
+test('restoring site permission never opens a chooser or connects, and respects saved selection', async () => {
+  const mock = mockBluetooth();
+  const other = { id: 'other', name: 'SWS-PT1-other' };
+  const bluetooth = { getDevices: async () => [mock.device, other, { name: 'Headphones' }] };
+  const printer = new Printer();
+  assert.equal(await printer.restoreDevice(bluetooth), false, 'multiple printers need a choice');
+  assert.equal(await printer.restoreDevice(bluetooth, mock.device.id), true);
+  assert.equal(printer.device, mock.device);
+  assert.equal(mock.device.gatt.connected, false);
+  await printer.connect(bluetooth);
+  assert.equal(printer.ready, true);
+  printer.disconnect();
+  assert.equal(await new Printer().restoreDevice({}), false);
+  assert.equal(await new Printer().restoreDevice({ getDevices: async () => { throw new Error('Unsupported'); } }), false);
+  const single = new Printer();
+  assert.equal(await single.restoreDevice({ getDevices: async () => [mock.device] }), true);
+});
+
+test('canceling another-printer chooser preserves connection; revoked permission allows a fresh chooser', async () => {
+  const mock = mockBluetooth(), printer = new Printer();
+  await printer.connect(mock.bluetooth);
+  await assert.rejects(printer.connect({ requestDevice: async () => { throw new DOMException('Canceled', 'NotFoundError'); } }, { chooseNew: true }), /Canceled/);
+  assert.equal(printer.ready, true);
+  assert.equal(mock.device.gatt.connected, true);
+  printer.disconnect();
+  mock.device.gatt.connect = async () => { throw new DOMException('Revoked', 'SecurityError'); };
+  await assert.rejects(printer.connect(mock.bluetooth), /Revoked/);
+  assert.equal(printer.device, null);
+  assert.equal(printer.ready, false);
 });
 
 test('printer prevents concurrent jobs and cancellation releases the busy state', async () => {
