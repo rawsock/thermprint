@@ -120,7 +120,9 @@ fieldset:disabled { opacity: .6; }
 .search-row { display: flex; gap: 8px; }
 .search-row input { min-width: 0; width: 100%; border: 1px solid #dfe3d9; border-radius: 7px; padding: 10px; font-size: 13px; }
 .search-button { background: var(--blue); color: white; }
-.graphics-filter { margin-top: 14px; }
+.graphics-options { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
+.graphics-options .control { min-width: 180px; }
+.graphics-options .check { min-height: 38px; }
 .graphics-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; max-height: 440px; overflow: auto; padding: 3px; }
 .graphic-card { display: flex; flex-direction: column; text-align: left; background: white; border: 1px solid #e0e5d9; border-radius: 8px; padding: 6px; min-width: 0; }
 .graphic-card:hover { background: #f5f7f0; }

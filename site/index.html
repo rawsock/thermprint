@@ -66,14 +66,16 @@ Enjoy the small things.</textarea>
             <form id="graphics-form">
               <label for="graphics-query" class="label">Find something to print</label>
               <div class="search-row"><input id="graphics-query" type="search" maxlength="160" placeholder="Try cat, flower, bicycle…" required><button id="graphics-search" class="button search-button" type="submit">Search</button></div>
-              <label class="check graphics-filter"><input id="graphics-bw" type="checkbox"> Black &amp; white artwork</label>
-              <p class="tab-hint">Narrow to icons, outlines and labels. Checks for black ink and white backgrounds, allowing smooth edges.</p>
+              <div class="graphics-options">
+                <label class="control">Image library<select id="graphics-library"><option value="iconify" selected>Iconify · icons &amp; symbols</option><option value="commons">Wikimedia · all images</option></select></label>
+                <label id="graphics-monochrome-label" class="check"><input id="graphics-monochrome" type="checkbox" checked> Monochrome only</label>
+              </div>
             </form>
-            <p class="tab-hint">Search Wikimedia Commons. Select a graphic to put it straight on the paper.</p>
-            <p id="graphics-status" class="tab-hint" role="status" aria-live="polite">Your search is sent to Wikimedia; your print content stays here.</p>
+            <p id="graphics-hint" class="tab-hint">Search icons and symbols from Iconify. Short subjects like cat, flower or coffee work best.</p>
+            <p id="graphics-status" class="tab-hint" role="status" aria-live="polite">Your search goes to the selected library; your print content stays here.</p>
             <div id="graphics-gallery" class="graphics-gallery" aria-label="Graphics search results"></div>
             <button id="graphics-more" type="button" class="button secondary" hidden>Load more</button>
-            <button id="graphics-broaden" type="button" class="button secondary" hidden>Search all images</button>
+            <button id="graphics-broaden" type="button" class="button secondary" hidden>Search Wikimedia instead</button>
             <div id="graphics-selection" class="selected-graphic" hidden><strong id="graphics-selected-title"></strong><p id="graphics-credit"></p><a id="graphics-source" target="_blank" rel="noopener noreferrer">Source and reuse terms ↗</a><p class="tab-hint">Keep the creator credit and follow the linked license when sharing your print.</p></div>
           </div>
           <div id="draw-panel" role="tabpanel" aria-labelledby="draw-tab" hidden>
@@ -86,7 +88,7 @@ Enjoy the small things.</textarea>
             <p class="tab-hint">Draw with your finger, mouse, or stylus. Clear can be undone.</p>
           </div>
         </fieldset>
-        <p class="local-note"><span aria-hidden="true">↳</span> Prints stay local. Graphics searches go to Wikimedia.</p>
+        <p class="local-note"><span aria-hidden="true">↳</span> Prints stay local. Graphics searches go to Iconify or Wikimedia.</p>
       </section>
       <section class="preview panel" aria-labelledby="preview-title">
         <div class="panel-heading"><h2 id="preview-title"><span class="step">02</span> On the paper</h2><button id="download" type="button" class="text-button" title="Save the monochrome artwork, before printer-specific feed correction">Save PNG <span aria-hidden="true">↗</span></button></div>

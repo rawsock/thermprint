@@ -1,29 +1,35 @@
-const API = 'https://commons.wikimedia.org/w/api.php';
+const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
+const ICONIFY_API = 'https://api.iconify.design';
 const IMAGE_HOSTS = new Set(['upload.wikimedia.org', 'thumb.wikimedia.org']);
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/tiff', 'image/bmp']);
+const ICON_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function commonsImageURL(value) {
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || !IMAGE_HOSTS.has(url.hostname) || url.username || url.password) return null;
+    if (url.protocol !== 'https:' || !IMAGE_HOSTS.has(url.hostname) || url.username || url.password || url.port) return null;
     return url.href;
   } catch { return null; }
 }
 
-export function searchURL(query, offset = 0, artworkType = null) {
-  const subject = query.trim();
-  // Repeat the subject in each OR branch: CirrusSearch does not group these like SQL.
-  const search = artworkType === 'vectors' ? `${subject} filetype:drawing` : artworkType === 'bitmaps' ?
-    ['icon', 'silhouette', '"line art"', 'clipart', 'label', '"black and white"']
-      .map(kind => `${subject} ${kind}`).join(' OR ') + ' filetype:bitmap' : subject;
+function iconifyImageURL(value) {
+  try {
+    const url = new URL(value);
+    if (url.origin !== ICONIFY_API || url.username || url.password ||
+      !/^\/[a-z0-9-]+\/[a-z0-9-]+\.svg$/.test(url.pathname)) return null;
+    return url.href;
+  } catch { return null; }
+}
+
+export function searchURL(query, offset = 0) {
   const params = new URLSearchParams({
     action: 'query', format: 'json', formatversion: '2', origin: '*',
-    generator: 'search', gsrsearch: search,
-    gsrnamespace: '6', gsrlimit: '18', gsroffset: String(offset),
+    generator: 'search', gsrsearch: query.trim(),
+    gsrnamespace: '6', gsrlimit: '48', gsroffset: String(offset),
     prop: 'imageinfo', iiprop: 'url|extmetadata|mime', iiurlwidth: '500', iiurlheight: '700',
     iiextmetadatafilter: 'Artist|LicenseShortName|LicenseUrl|AttributionRequired',
   });
-  return `${API}?${params}`;
+  return `${COMMONS_API}?${params}`;
 }
 
 export function galleryResults(data) {
@@ -42,93 +48,80 @@ export function galleryResults(data) {
   return { items, next: data.continue?.gsroffset ?? null };
 }
 
-export function isBlackWhiteArtwork(rgba, width) {
-  const count = rgba.length / 4;
-  const tones = new Float32Array(count), grayPixels = new Uint8Array(count);
-  let black = 0, white = 0, colored = 0;
-  for (let i = 0; i < rgba.length; i += 4) {
-    const alpha = rgba[i + 3] / 255;
-    const r = rgba[i] * alpha + 255 * (1 - alpha);
-    const g = rgba[i + 1] * alpha + 255 * (1 - alpha);
-    const b = rgba[i + 2] * alpha + 255 * (1 - alpha);
-    const high = Math.max(r, g, b), low = Math.min(r, g, b);
-    tones[i / 4] = (r + g + b) / 3;
-    if (low > 224) white++;
-    else if (high - low > 24) colored++;
-    else if (high < 64) black++;
-    else grayPixels[i / 4] = 1;
-  }
-  const marks = count - white, gray = marks - black - colored;
-  let shaded = 0;
-  for (let y = 1; y < count / width - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const i = y * width + x;
-      if (grayPixels[i] && [i - 1, i + 1, i - width, i + width].every(neighbor => Math.abs(tones[i] - tones[neighbor]) < 12)) shaded++;
-    }
-  }
-  // Allow antialiased edges and JPEG noise, but reject shaded fills and even small
-  // colored icons on large white backgrounds. Transparent pixels print as white.
-  return black > count * 0.0005 && white > count * 0.05 &&
-    colored <= marks * 0.01 && gray <= marks * 0.25 && gray <= count * 0.08 && shaded <= marks * 0.03;
+export function iconifyResults(data, monochromeOnly = true) {
+  if (!Array.isArray(data.icons)) throw new Error('The icon library could not complete this search. Try again.');
+  const items = data.icons.flatMap(id => {
+    if (!ICON_NAME.test(id)) return [];
+    const [prefix, name] = id.split(':');
+    const collection = data.collections?.[prefix];
+    if (!collection?.license?.title || (monochromeOnly && collection.palette !== false)) return [];
+    const svg = height => `${ICONIFY_API}/${prefix}/${name}.svg?height=${height}&color=%23000`;
+    return [{
+      id, title: `${name.replaceAll('-', ' ')} · ${collection.name || prefix}`,
+      thumbnail: svg(128), image: svg(768),
+      source: `https://icon-sets.iconify.design/${prefix}/${name}/`,
+      artist: collection.author?.name || '', license: collection.license.title,
+    }];
+  });
+  // Pagination must use the raw count, before optional monochrome filtering.
+  const next = data.limit > 0 && data.icons.length >= data.limit ? (data.start || 0) + data.icons.length : null;
+  return { items, next };
 }
 
-export async function searchGraphics(query, { offset = 0, blackWhiteOnly = false, signal } = {}) {
-  const fetchPage = async (start, type = null) => {
-    const response = await fetch(searchURL(query, start, type), { signal, credentials: 'omit' });
-    if (!response.ok) throw new Error(response.status === 429 ? 'The image library is busy. Wait a moment before searching again.' : 'The image library is unavailable. Please try again.');
-    return galleryResults(await response.json());
-  };
-  if (!blackWhiteOnly) return fetchPage(offset);
-  const items = [];
-  let next = offset === 0 ? { vectors: 0, bitmaps: 0 } : { ...offset }, unavailable = 0, checked = 0;
-  for (let page = 0; page < 3; page++) {
-    // Check both sources so photographs don't bury icons, while raster drawings
-    // remain eligible. Each source keeps its own cursor when loading more.
-    const results = await Promise.all(['vectors', 'bitmaps'].map(async type => {
-      if (next[type] === null) return { items: [] };
-      const result = await fetchPage(next[type], type);
-      next[type] = result.next;
-      return result;
-    }));
-    const candidates = [...new Map(results.flatMap(result => result.items).map(item => [item.id, item])).values()];
-    const keep = new Set();
-    let index = 0;
-    await Promise.all(Array.from({ length: 3 }, async () => {
-      while (index < candidates.length) {
-        signal?.throwIfAborted();
-        const item = candidates[index++];
-        let bitmap;
-        try {
-          bitmap = await loadGraphic(item, signal);
-          signal?.throwIfAborted();
-          const canvas = document.createElement('canvas');
-          canvas.width = bitmap.width; canvas.height = bitmap.height;
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          ctx.drawImage(bitmap, 0, 0);
-          if (isBlackWhiteArtwork(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width)) keep.add(item.id);
-          checked++;
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          unavailable++;
-        } finally { bitmap?.close(); }
-      }
-    }));
-    items.push(...candidates.filter(item => keep.has(item.id) && !items.some(existing => existing.id === item.id)));
-    if (next.vectors === null && next.bitmaps === null) next = null;
-    if (items.length >= 6 || next === null) break;
+export async function searchGraphics(query, { source = 'iconify', offset = 0, monochromeOnly = true, signal } = {}) {
+  signal?.throwIfAborted();
+  if (!['iconify', 'commons'].includes(source)) throw new Error('Choose an image library.');
+  // Fetch two gallery pages first, then the remaining matches on demand, as
+  // recommended by Iconify. No image downloads or pixel checks block search.
+  const params = new URLSearchParams({ query: query.trim(), limit: offset === 0 ? '96' : '999', start: String(offset) });
+  const url = source === 'iconify' ? `${ICONIFY_API}/search?${params}` : searchURL(query, offset);
+  const response = await fetch(url, { signal, credentials: 'omit' });
+  if (!response.ok) throw new Error(response.status === 429 ? 'The image library is busy. Wait a moment before searching again.' : 'The image library is unavailable. Please try again.');
+  const data = await response.json();
+  return source === 'iconify' ? iconifyResults(data, monochromeOnly) : galleryResults(data);
+}
+
+async function rasterizeIcon(blob, signal) {
+  const url = URL.createObjectURL(blob), image = new Image();
+  let abort;
+  try {
+    await new Promise((resolve, reject) => {
+      abort = () => reject(signal.reason || new DOMException('Canceled', 'AbortError'));
+      image.onload = resolve;
+      image.onerror = () => reject(new Error('This icon could not be opened. Try another one.'));
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) { abort(); return; }
+      // SVG stays in an image context, never inserted into the page as markup.
+      image.src = url;
+    });
+    const width = image.naturalWidth, height = image.naturalHeight;
+    if (!width || !height) throw new Error('This icon has no printable size.');
+    const scale = Math.min(1, 768 / width, 768 / height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await createImageBitmap(canvas);
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    image.onload = image.onerror = null;
+    image.src = '';
+    URL.revokeObjectURL(url);
   }
-  if (!checked && unavailable) throw new Error('Could not check the image previews. Try again, or turn off Black & white artwork.');
-  return { items, next, unavailable };
 }
 
 export async function loadGraphic(item, signal) {
-  const url = commonsImageURL(item.thumbnail);
+  signal?.throwIfAborted();
+  const value = item.image || item.thumbnail;
+  const svgURL = iconifyImageURL(value);
+  const url = svgURL || commonsImageURL(value);
   if (!url) throw new Error('Unsupported image source.');
   const response = await fetch(url, { signal, credentials: 'omit' });
   if (!response.ok) throw new Error('This graphic could not be loaded. Try another one.');
   const blob = await response.blob();
-  if (blob.size > 15 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(blob.type.split(';')[0])) {
+  const type = blob.type.split(';')[0];
+  if (blob.size > 15 * 1024 * 1024 || !(svgURL ? type === 'image/svg+xml' : ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(type))) {
     throw new Error('This graphic is not available as a supported preview image.');
   }
-  return createImageBitmap(blob);
+  return svgURL ? rasterizeIcon(blob, signal) : createImageBitmap(blob);
 }
