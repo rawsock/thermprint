@@ -1,10 +1,17 @@
 import { searchGraphics, loadGraphic } from './gallery.js';
+import { setText, t } from './i18n.js';
 
 export function setupGallery({ onSelect, onLoading }) {
   const $ = id => document.getElementById(id);
   let next = null, query = '', source = 'iconify', monochromeOnly = true, selected = null, pending = [];
   let searchController, imageController;
-  const status = text => { $('graphics-status').textContent = text; };
+  let cards = [];
+  const status = (text, values) => setText($('graphics-status'), text, values);
+  const labelCard = ({ card, item }) => {
+    card.title = t('Use {title}', item);
+    card.setAttribute('aria-label', t('Use {title}, {license}', item));
+  };
+  globalThis.window?.addEventListener('thermprint-language-change', () => cards.forEach(labelCard));
   const setSelection = () => {
     for (const card of $('graphics-gallery').children) card.setAttribute('aria-pressed', String(card.dataset.id === selected));
   };
@@ -43,14 +50,15 @@ export function setupGallery({ onSelect, onLoading }) {
       source = $('graphics-library').value;
       monochromeOnly = $('graphics-monochrome').checked;
       $('graphics-gallery').replaceChildren();
+      cards = [];
       next = null;
       pending = [];
     }
     const timer = setTimeout(() => controller.abort(), 20000);
     $('graphics-more').hidden = true;
     $('graphics-broaden').hidden = true;
-    if (!query) { clearTimeout(timer); $('graphics-search').textContent = 'Search'; status('Enter a few words to find images.'); return; }
-    $('graphics-search').textContent = 'Searching…';
+    if (!query) { clearTimeout(timer); setText($('graphics-search'), 'Search'); status('Enter a few words to find images.'); return; }
+    setText($('graphics-search'), 'Searching…');
     status(source === 'iconify' ? 'Searching Iconify…' : 'Searching Wikimedia Commons…');
     try {
       if (!more || pending.length === 0) {
@@ -65,8 +73,8 @@ export function setupGallery({ onSelect, onLoading }) {
         card.type = 'button';
         card.className = 'graphic-card';
         card.dataset.id = item.id;
-        card.title = `Use ${item.title}`;
-        card.setAttribute('aria-label', `Use ${item.title}, ${item.license}`);
+        cards.push({ card, item });
+        labelCard({ card, item });
         const image = document.createElement('img');
         image.src = item.thumbnail;
         image.alt = '';
@@ -84,10 +92,10 @@ export function setupGallery({ onSelect, onLoading }) {
       $('graphics-more').hidden = next === null && pending.length === 0;
       const count = $('graphics-gallery').children.length;
       $('graphics-broaden').hidden = count > 0;
-      $('graphics-broaden').textContent = source === 'iconify' ? 'Search Wikimedia instead' : 'Search Iconify instead';
-      status(count ? `${count} graphics shown. Select one to preview and print.` : source === 'iconify' ?
+      setText($('graphics-broaden'), source === 'iconify' ? 'Search Wikimedia instead' : 'Search Iconify instead');
+      status(count ? '{count} graphics shown. Select one to preview and print.' : source === 'iconify' ?
         'No matching icons here. Try a short subject such as cat, include color icons, or search Wikimedia.' :
-        'No images found. Try fewer words, or a broader subject such as cat.');
+        'No images found. Try fewer words, or a broader subject such as cat.', { count });
     } catch (error) {
       if (controller === searchController) {
         status(controller.signal.aborted ? 'Search timed out. Try again.' : error.message);
@@ -95,7 +103,7 @@ export function setupGallery({ onSelect, onLoading }) {
       }
     } finally {
       clearTimeout(timer);
-      if (controller === searchController) $('graphics-search').textContent = 'Search';
+      if (controller === searchController) setText($('graphics-search'), 'Search');
     }
   };
   $('graphics-form').addEventListener('submit', event => { event.preventDefault(); search(false); });
@@ -103,9 +111,9 @@ export function setupGallery({ onSelect, onLoading }) {
   const updateLibrary = () => {
     const icons = $('graphics-library').value === 'iconify';
     $('graphics-monochrome-label').hidden = !icons;
-    $('graphics-hint').textContent = icons ?
+    setText($('graphics-hint'), icons ?
       'Search icons and symbols from Iconify. Short subjects like cat, flower or coffee work best.' :
-      'Search photos and illustrations from Wikimedia Commons.';
+      'Search photos and illustrations from Wikimedia Commons.');
     search(false);
   };
   $('graphics-library').addEventListener('change', updateLibrary);

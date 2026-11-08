@@ -3,6 +3,9 @@ import { textCanvas, imageCanvas, drawInk, drawPreview, preparePrint, DEFAULT_FE
 import { qrCanvas } from './qr.js';
 import { setupDrawing } from './drawing.js';
 import { setupGallery } from './gallery-ui.js';
+import { setupPreferences, setText, t, formatNumber } from './i18n.js';
+
+setupPreferences();
 
 const $ = id => document.getElementById(id);
 const supported = Boolean(navigator.bluetooth && window.isSecureContext);
@@ -19,12 +22,12 @@ let connecting = false, printing = false, stopped = false;
 const logLines = [];
 
 function log(message) {
-  logLines.push(`${new Date().toLocaleTimeString()}  ${message}`);
+  logLines.push(`${new Date().toLocaleTimeString(document.documentElement.lang)}  ${t(message)}`);
   if (logLines.length > 60) logLines.shift();
   $('log').textContent = logLines.join('\n');
 }
 function message(text, kind = '') {
-  $('job-status').textContent = text;
+  setText($('job-status'), text);
   $('job-status').className = `job-status ${kind}`;
 }
 const printer = new Printer({
@@ -36,8 +39,8 @@ const printer = new Printer({
     updateButtons();
   },
   onDisconnect: () => {
-    $('printer-name').textContent = 'No printer connected';
-    $('connection-hint').textContent = 'Power on your SWS-PT1 to reconnect.';
+    setText($('printer-name'), 'No printer connected');
+    setText($('connection-hint'), 'Power on your SWS-PT1 to reconnect.');
     $('battery').textContent = '';
     if (!connecting && !printing) message('Printer disconnected. Power it on and connect again.');
     updateButtons();
@@ -46,12 +49,12 @@ const printer = new Printer({
 
 function updateButtons() {
   $('connect').disabled = !supported || connecting || printing;
-  $('connect').textContent = connecting ? 'Connecting…' : printer.ready ? 'Disconnect' : printer.device ? 'ᛒ  Reconnect printer' : 'ᛒ  Connect printer';
+  setText($('connect'), connecting ? 'Connecting…' : printer.ready ? 'Disconnect' : printer.device ? 'ᛒ  Reconnect printer' : 'ᛒ  Connect printer');
   $('choose-printer').hidden = !printer.device;
   $('choose-printer').disabled = connecting || printing;
   $('connection-dot').classList.toggle('connected', printer.ready);
   $('print').disabled = !printer.ready || Boolean(printer.status?.error) || !preview || printing || connecting;
-  $('print').textContent = printing ? 'Printing…' : '↳  Print this';
+  setText($('print'), printing ? 'Printing…' : '↳  Print this');
   $('stop').hidden = !printing;
   $('editor-controls').disabled = printing;
   $('print-settings').disabled = printing;
@@ -65,11 +68,11 @@ function render() {
   const empty = mode === 'text' ? !$('text').value.trim() : mode === 'image' ? !loadedImage :
     mode === 'qr' ? !$('qr-text').value.trim() : mode === 'graphics' ? !graphic || graphicLoading : false;
   $('preview-empty').hidden = !empty;
-  $('preview-empty').textContent = { text: 'Add some text to see your print.', image: 'Choose an image to see your print.',
-    qr: 'Enter a link or message to make a QR code.', graphics: graphicLoading ? 'Loading your graphic…' : 'Search and select a graphic to print.', draw: 'Draw something to see your print.' }[mode];
+  setText($('preview-empty'), { text: 'Add some text to see your print.', image: 'Choose an image to see your print.',
+    qr: 'Enter a link or message to make a QR code.', graphics: graphicLoading ? 'Loading your graphic…' : 'Search and select a graphic to print.', draw: 'Draw something to see your print.' }[mode]);
   $('paper').hidden = empty;
   $('threshold-value').value = $('threshold').value;
-  $('feed-scale-value').value = `${(feedScale * 100).toFixed(1)}%`;
+  $('feed-scale-value').value = `${formatNumber(feedScale * 100)}%`;
   $('dither').disabled = mode === 'qr';
   $('threshold').disabled = mode === 'qr';
   $('dither-options').disabled = mode === 'qr' || !$('dither').checked;
@@ -97,11 +100,11 @@ function render() {
     }
   } catch (error) {
     $('paper').hidden = true;
-    $('preview-error').textContent = error.message;
+    setText($('preview-error'), error.message);
     $('preview-error').hidden = false;
   }
-  $('dimensions').textContent = preview ? `384 × ${preview.height} dots` : '384 dots wide';
-  $('paper-length').textContent = preview ? `About ${Math.round(preview.artworkHeight / 8)} mm long` : '';
+  setText($('dimensions'), preview ? '384 × {height} dots' : '384 dots wide', { height: preview?.height });
+  setText($('paper-length'), preview ? 'About {length} mm long' : '', { length: Math.round((preview?.artworkHeight || 0) / 8) });
   updateButtons();
 }
 
@@ -127,13 +130,13 @@ async function loadImage(file) {
     if (bitmap.width * bitmap.height > 40_000_000) { bitmap.close(); throw new Error('Choose an image below 40 megapixels.'); }
     loadedImage?.close();
     loadedImage = bitmap;
-    $('image-name').textContent = file.name;
+    setText($('image-name'), '{name}', { name: file.name });
     selectMode('image');
   } catch (error) {
     if (version !== imageVersion) return;
     loadedImage?.close();
     loadedImage = null;
-    $('image-name').textContent = error.message;
+    setText($('image-name'), error.message);
     render();
   }
 }
@@ -146,8 +149,8 @@ async function connectPrinter(chooseNew = false) {
   try {
     const name = await printer.connect(navigator.bluetooth, { chooseNew });
     try { localStorage.setItem('thermprint-device-id', printer.device.id); } catch { /* Optional persistence. */ }
-    $('printer-name').textContent = name;
-    $('connection-hint').textContent = 'Connected over Bluetooth. All set.';
+    setText($('printer-name'), '{name}', { name });
+    setText($('connection-hint'), 'Connected over Bluetooth. All set.');
     message('Ready when you are.');
   } catch (error) {
     const reason = error.name === 'NotFoundError' ? 'No printer selected. Power it on, close Funny Print, and try again.' : error.message;
@@ -166,7 +169,7 @@ $('print').addEventListener('click', async () => {
   $('progress').value = 0;
   $('progress').hidden = false;
   message('Sending your print. Keep this tab open…');
-  log(`Starting ${WIDTH} × ${job.height} dot print.`);
+  log(t('Starting {width} × {height} dot print.', { width: WIDTH, height: job.height }));
   updateButtons();
   let wakeLock;
   try {
@@ -231,11 +234,12 @@ $('drop-zone').addEventListener('dragleave', () => $('drop-zone').classList.remo
 $('drop-zone').addEventListener('drop', event => { event.preventDefault(); $('drop-zone').classList.remove('dragging'); loadImage(event.dataTransfer.files[0]); });
 window.addEventListener('pagehide', () => printer.disconnect());
 window.addEventListener('beforeunload', event => { if (printing) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('thermprint-language-change', render);
 if (!supported) {
   $('compatibility').hidden = false;
-  $('compatibility').textContent = window.isSecureContext ?
+  setText($('compatibility'), window.isSecureContext ?
     'Bluetooth is unavailable in this browser. You can still create and save a print. To connect, open this page in Chrome on Android, or Chrome / Edge on Windows or macOS.' :
-    'Bluetooth needs HTTPS or localhost. Open the GitHub Pages version to connect your printer.';
+    'Bluetooth needs HTTPS or localhost. Open the GitHub Pages version to connect your printer.');
   message('Create a preview here, or open a supported browser to print.');
 }
 render();
@@ -243,7 +247,7 @@ if (supported) {
   let preferredId;
   try { preferredId = localStorage.getItem('thermprint-device-id'); } catch { /* Optional persistence. */ }
   printer.restoreDevice(navigator.bluetooth, preferredId).then(restored => {
-    if (restored && !printer.ready && !connecting) $('connection-hint').textContent = 'Printer remembered. Power it on and reconnect.';
+    if (restored && !printer.ready && !connecting) setText($('connection-hint'), 'Printer remembered. Power it on and reconnect.');
     updateButtons();
   });
 }

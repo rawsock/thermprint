@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #262926; background: #f4f3ef; font-synthesis: none;
   --blue: #2c58e6; --muted: #737871; --border: #e4e5df;
@@ -17,6 +18,10 @@ a { color: inherit; }
 .beta { font-size: 9px; letter-spacing: 1px; border: 1px solid #d0d3cb; border-radius: 4px; padding: 3px 5px; margin-left: 3px; color: #74796f; }
 .privacy { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #646c60; }
 .privacy > span { font-size: 21px; color: #74856c; }
+.topbar { gap: 20px; flex-wrap: wrap; }
+.header-options { display: flex; gap: 12px; margin-left: auto; }
+.header-options .control { min-width: 100px; gap: 4px; }
+.header-options select { padding: 7px; }
 main { max-width: 1320px; margin: auto; padding: 32px 0 12px; }
 .intro { display: flex; justify-content: space-between; align-items: center; gap: 32px; margin-bottom: 30px; }
 .eyebrow { font-size: 10px; font-weight: 750; letter-spacing: 2.3px; color: #777d71; margin: 0 0 13px; }
@@ -155,7 +160,7 @@ fieldset:disabled { opacity: .6; }
 @media (max-width: 1100px) { .workspace { grid-template-columns: 1fr; } .preview-body { grid-template-columns: minmax(0, 1fr) 260px; } }
 @media (max-width: 760px) {
   .topbar { padding: 20px 22px; } .brand { font-size: 20px; }
-  .privacy { font-size: 0; } .privacy > span { font-size: 23px; }
+  .privacy { display: none; }
   main { margin: 0; padding: 28px 20px 8px; }
   .intro { display: block; margin-bottom: 22px; }
   .subtitle { font-size: 12px; line-height: 1.6; } h1 { letter-spacing: -1px; }
@@ -169,6 +174,7 @@ fieldset:disabled { opacity: .6; }
   .print-footer { padding: 20px; } .local-note { padding: 15px 20px; }
 }
 @media (max-width: 580px) {
+  .header-options { width: 100%; }
   .preview { top: 8px; }
   .preview-body { grid-template-columns: 1fr; }
   .preview-stage { min-height: 140px; height: 28dvh; max-height: 230px; }
@@ -176,3 +182,29 @@ fieldset:disabled { opacity: .6; }
   .print-footer { padding: 14px 20px; }
   .print-meta { margin-bottom: 12px; }
 }
+
+:root[data-theme=dark] {
+  color-scheme: dark;
+  color: #e5ebe4; background: #151918;
+  --blue: #9bb5ff; --muted: #adb8a8; --border: #3b463d;
+}
+[data-theme=dark] :is(.topbar, .beta, .printer-card, .panel-heading, textarea, select, .local-note, .page-footer, .calibration, .connect, .search-row input, .graphic-card, .secondary, #draw-canvas) { border-color: var(--border); }
+[data-theme=dark] :is(.panel, .connect, .tabs button[aria-selected=true], .graphic-card) { background: #202623; }
+[data-theme=dark] :is(.printer-card, .tabs, .adjustment-heading output, .diagnostics pre, .file-label, .selected-graphic, .secondary) { background: #2a312d; }
+[data-theme=dark] :is(textarea, select, .search-row input) { background: #19201c; color: #e5ebe4; }
+[data-theme=dark] :is(.connect:hover:not(:disabled), .graphic-card:hover, .drop-zone:hover, .drop-zone.dragging) { background: #303c32; }
+[data-theme=dark] :is(.beta, .privacy, .privacy > span, .eyebrow, .subtitle, .printer-card p, .battery, .step, .small-label, .tabs button, .control, .adjustment-heading output, .range-labels, .dither small, .local-note, .text-button, .paper-width, .print-meta, .job-status, .help, .diagnostics, .page-footer, .drop-zone, .upload-symbol, .image-name, .empty-state, .tab-hint, .graphic-card small, .calibration) { color: var(--muted); }
+[data-theme=dark] :is(.connect, .help-content strong, .drop-zone strong, .file-label, .secondary, .graphic-card) { color: #e5ebe4; }
+[data-theme=dark] :is(.tabs button[aria-selected=true], .selected-graphic a, .text-button:hover) { color: var(--blue); }
+[data-theme=dark] textarea::placeholder, [data-theme=dark] .search-row input::placeholder { color: #9aa894; }
+[data-theme=dark] .preview-stage { background-color: #171e1a; background-image: radial-gradient(#39463c .7px, transparent .7px); }
+[data-theme=dark] .paper-width span { background: #4c594b; }
+[data-theme=dark] :is(.primary, .search-button) { background: #3959bd; }
+[data-theme=dark] .primary:hover:not(:disabled) { background: #496cda; }
+[data-theme=dark] .primary:disabled { background: #2c3647; color: #a3b1c9; }
+[data-theme=dark] :is(.job-status.error, .error-text) { color: #ffb5a4; }
+[data-theme=dark] .job-status.success { color: #9ad7ac; }
+[data-theme=dark] .stop { background: #4b2e28; color: #ffb5a4; }
+[data-theme=dark] .notice { background: #3b3320; border-color: #625332; color: #e5cf9c; }
+[data-theme=dark] .drop-zone { border-color: #66765c; }
+/* Paper, imported graphics and drawing pixels keep their actual print colors. */

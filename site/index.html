@@ -15,6 +15,10 @@
   <header class="topbar">
     <a class="brand" href="./" aria-label="ThermPrint home"><img src="./icon.svg" alt="" width="34" height="34">ThermPrint<span class="beta">BETA</span></a>
     <span class="privacy"><span aria-hidden="true">◈</span> Just you and your printer</span>
+    <div class="header-options">
+      <label class="control">Language<select id="language"><option value="en" lang="en">English</option><option value="pl" lang="pl">Polski</option></select></label>
+      <label class="control">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </div>
   </header>
   <main>
     <section class="intro">
@@ -136,7 +140,7 @@ Enjoy the small things.</textarea>
         </div>
       </section>
     </div>
-    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview shows your artwork in its intended proportions. Paper-feed correction adds rows during printing to compensate for the printer’s vertical squeeze. End spacing controls the extra blank paper for tearing. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
+    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview shows your artwork in its intended proportions. Paper-feed correction adds rows during printing to compensate for the printer’s vertical squeeze. Start and end spacing control the extra blank paper. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
     <details class="diagnostics"><summary>Connection log</summary><pre id="log" aria-label="Connection log">Ready to connect.</pre></details>
   </main>
   <footer class="page-footer"><span>Made for little moments on paper.</span><a href="https://github.com/rawsock/thermprint" target="_blank" rel="noopener noreferrer">ThermPrint on GitHub ↗</a></footer>
