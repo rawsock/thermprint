@@ -83,7 +83,24 @@ Enjoy the small things.</textarea>
             <canvas id="draw-canvas" width="384" height="384" aria-label="Drawing canvas. Draw with a mouse, stylus, or finger." aria-disabled="false"></canvas>
             <p class="tab-hint">Draw with your finger, mouse, or stylus. Clear can be undone.</p>
           </div>
-          <div class="divider"></div>
+        </fieldset>
+        <p class="local-note"><span aria-hidden="true">↳</span> Prints stay local. Graphics searches go to Wikimedia.</p>
+      </section>
+      <section class="preview panel" aria-labelledby="preview-title">
+        <div class="panel-heading"><h2 id="preview-title"><span class="step">02</span> On the paper</h2><button id="download" type="button" class="text-button" title="Save the monochrome artwork, before printer-specific feed correction">Save PNG <span aria-hidden="true">↗</span></button></div>
+        <div class="preview-body">
+        <div class="preview-stage">
+          <div class="paper-width"><span></span>48 mm printable width<span></span></div>
+          <div class="paper" id="paper"><canvas id="preview-canvas" width="384" height="320" role="img" aria-label="Monochrome preview of your print"></canvas></div>
+          <p id="preview-empty" class="empty-state" hidden>Add some text to see your print.</p>
+        </div>
+        <fieldset id="print-settings">
+          <legend class="sr-only">Print adjustments</legend>
+          <div id="image-scale-control" hidden>
+            <div class="adjustment-heading"><label for="image-scale" class="label">Image size</label><output id="image-scale-value" for="image-scale">100%</output></div>
+            <input id="image-scale" type="range" min="10" max="100" step="1" value="100">
+            <div class="range-labels"><span>Smaller</span><span>Fit to paper</span></div>
+          </div>
           <div class="adjustment-heading"><label for="threshold" class="label">Ink balance</label><output id="threshold-value" for="threshold">160</output></div>
           <input id="threshold" type="range" min="50" max="230" value="160">
           <div class="range-labels"><span>Lighter</span><span>Darker</span></div>
@@ -97,14 +114,7 @@ Enjoy the small things.</textarea>
           </div>
           <details class="calibration"><summary>Paper-feed calibration</summary><label for="feed-scale" class="label">Vertical correction <output id="feed-scale-value">113.7%</output></label><input id="feed-scale" type="range" min="80" max="140" step="0.1" value="113.7"><p class="tab-hint">Corrects the printer’s vertical squeeze so circles stay round. Applies to every tab. Use 100% for no correction.</p><button id="feed-reset" class="text-button" type="button">Reset to measured correction</button></details>
         </fieldset>
-        <p class="local-note"><span aria-hidden="true">↳</span> Prints stay local. Graphics searches go to Wikimedia.</p>
-      </section>
-      <section class="preview panel" aria-labelledby="preview-title">
-        <div class="panel-heading"><h2 id="preview-title"><span class="step">02</span> On the paper</h2><button id="download" type="button" class="text-button" title="Save the monochrome artwork, before printer-specific feed correction">Save PNG <span aria-hidden="true">↗</span></button></div>
-        <div class="preview-stage">
-          <div class="paper-width"><span></span>48 mm printable width<span></span></div>
-          <div class="paper" id="paper"><canvas id="preview-canvas" width="384" height="320" role="img" aria-label="Monochrome preview of your print"></canvas></div>
-          <p id="preview-empty" class="empty-state" hidden>Add some text to see your print.</p>
+          <label class="control end-space-control">End spacing<select id="end-space"><option value="0">None</option><option value="8">1 mm</option><option value="16" selected>2 mm</option><option value="32">4 mm</option><option value="64">8 mm</option></select></label>
         </div>
         <div class="print-footer">
           <div class="print-meta"><span id="dimensions">384 × 320 dots</span><span id="paper-length">About 40 mm long</span></div>
@@ -116,7 +126,7 @@ Enjoy the small things.</textarea>
         </div>
       </section>
     </div>
-    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview shows your artwork in its intended proportions. Paper-feed correction adds rows during printing to compensate for the printer’s vertical squeeze. Prints include blank paper for tearing. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
+    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview shows your artwork in its intended proportions. Paper-feed correction adds rows during printing to compensate for the printer’s vertical squeeze. End spacing controls the extra blank paper for tearing. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
     <details class="diagnostics"><summary>Connection log</summary><pre id="log" aria-label="Connection log">Ready to connect.</pre></details>
   </main>
   <footer class="page-footer"><span>Made for little moments on paper.</span><a href="https://github.com/rawsock/thermprint" target="_blank" rel="noopener noreferrer">ThermPrint on GitHub ↗</a></footer>

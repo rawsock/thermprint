@@ -54,6 +54,7 @@ function updateButtons() {
   $('print').textContent = printing ? 'Printing…' : '↳  Print this';
   $('stop').hidden = !printing;
   $('editor-controls').disabled = printing;
+  $('print-settings').disabled = printing;
   $('draw-canvas').setAttribute('aria-disabled', String(printing));
   $('download').disabled = !preview;
 }
@@ -73,12 +74,16 @@ function render() {
   $('threshold').disabled = mode === 'qr';
   $('dither-options').hidden = mode === 'qr' || !$('dither').checked;
   $('contrast-value').value = `${$('contrast').value}%`;
+  $('image-scale-control').hidden = !['image', 'graphics', 'draw'].includes(mode);
+  $('image-scale-value').value = `${$('image-scale').value}%`;
   try {
     if (!empty) {
+      const spacing = { endSpace: Number($('end-space').value) };
       const source = mode === 'text' ? textCanvas($('text').value, {
-        size: Number($('font-size').value), align: $('alignment').value, bold: $('bold').checked,
-      }) : mode === 'qr' ? qrCanvas($('qr-text').value, Number($('qr-size').value)) :
-        imageCanvas(mode === 'image' ? loadedImage : mode === 'graphics' ? graphic : $('draw-canvas'), feedScale);
+        size: Number($('font-size').value), align: $('alignment').value, bold: $('bold').checked, ...spacing,
+      }) : mode === 'qr' ? qrCanvas($('qr-text').value, Number($('qr-size').value), spacing) :
+        imageCanvas(mode === 'image' ? loadedImage : mode === 'graphics' ? graphic : $('draw-canvas'), feedScale,
+          { ...spacing, imageScale: Number($('image-scale').value) / 100 });
       const rgba = source.getContext('2d').getImageData(0, 0, WIDTH, source.height).data;
       const result = preparePrint(rgba, source.height, {
         threshold: mode === 'qr' ? 128 : Number($('threshold').value), dither: mode !== 'qr' && $('dither').checked,
@@ -205,7 +210,7 @@ for (const name of modes) {
     $(`${next}-tab`).focus();
   });
 }
-for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size']) $(id).addEventListener('input', render);
+for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'end-space', 'image-scale']) $(id).addEventListener('input', render);
 function saveCalibration() {
   try { localStorage.setItem('thermprint-feed-scale', String(feedScale)); } catch { /* Optional persistence. */ }
   render();

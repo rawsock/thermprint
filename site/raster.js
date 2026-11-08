@@ -1,6 +1,7 @@
 import { WIDTH, MAX_HEIGHT } from './protocol.js';
 
-export const FEED = 64;
+export const FEED = 16;
+export const START_SPACE = 4;
 export const MARGIN = 16;
 // A circular print measured 29 mm across but only 25.5 mm along the paper feed.
 export const DEFAULT_FEED_SCALE = 29 / 25.5;
@@ -141,39 +142,40 @@ export function paper(height) {
   if (height > MAX_HEIGHT) throw new Error('This print is too long. Shorten the text or use a smaller font (maximum about 19 cm).');
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
-  canvas.height = Math.max(96, height);
+  canvas.height = Math.max(1, height);
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   return { canvas, ctx };
 }
 
-export function textCanvas(text, { size = 26, align = 'left', bold = false } = {}) {
+export function textCanvas(text, { size = 26, align = 'left', bold = false, endSpace = FEED } = {}) {
   const font = `${bold ? 700 : 400} ${size}px Arial, sans-serif`;
   const measure = document.createElement('canvas').getContext('2d');
   measure.font = font;
   const lines = wrapText(text, value => measure.measureText(value).width, WIDTH - MARGIN * 2);
   const lineHeight = Math.ceil(size * 1.35);
-  const { canvas, ctx } = paper(MARGIN * 2 + lines.length * lineHeight + FEED);
+  const { canvas, ctx } = paper(START_SPACE + lines.length * lineHeight + endSpace);
   ctx.font = font;
   ctx.fillStyle = '#000';
   ctx.textBaseline = 'top';
   ctx.textAlign = align;
   const x = align === 'center' ? WIDTH / 2 : align === 'right' ? WIDTH - MARGIN : MARGIN;
-  lines.forEach((line, i) => ctx.fillText(line, x, MARGIN + i * lineHeight));
+  lines.forEach((line, i) => ctx.fillText(line, x, START_SPACE + i * lineHeight));
   return canvas;
 }
 
-export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE) {
+export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE, { endSpace = FEED, imageScale = 1 } = {}) {
+  if (!Number.isFinite(imageScale) || imageScale < 0.1 || imageScale > 1) throw new Error('Image size must be between 10% and 100%.');
   const maxWidth = WIDTH - MARGIN * 2;
-  const maxHeight = Math.min(MAX_HEIGHT, Math.floor(MAX_HEIGHT / scaleY)) - MARGIN * 2 - FEED;
-  const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+  const maxHeight = Math.min(MAX_HEIGHT, Math.floor(MAX_HEIGHT / scaleY)) - START_SPACE - endSpace;
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height) * imageScale;
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
-  const { canvas, ctx } = paper(height + MARGIN * 2 + FEED);
+  const { canvas, ctx } = paper(height + START_SPACE + endSpace);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(image, Math.floor((WIDTH - width) / 2), MARGIN, width, height);
+  ctx.drawImage(image, Math.floor((WIDTH - width) / 2), START_SPACE, width, height);
   return canvas;
 }
 

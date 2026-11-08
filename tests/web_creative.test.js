@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
 import jsQR from 'jsqr';
 import { qrCanvas } from '../site/qr.js';
-import { monochrome, calibrateInk, preparePrint, DEFAULT_FEED_SCALE, imageCanvas } from '../site/raster.js';
+import { monochrome, calibrateInk, preparePrint, DEFAULT_FEED_SCALE, imageCanvas, textCanvas, FEED, START_SPACE } from '../site/raster.js';
 import { drawStroke, canvasPoint, setupDrawing } from '../site/drawing.js';
 import { galleryResults, searchURL, commonsImageURL, searchGraphics, loadGraphic } from '../site/gallery.js';
 
@@ -56,8 +56,38 @@ test('tall images fit the maximum encoded print height without cropping at every
     const canvas = imageCanvas(source, scale);
     const ink = toInk(canvas);
     assert.ok(calibrateInk(ink, canvas.height, scale).height <= 1536);
-    assert.ok(ink.slice(-384 * 64).every(value => value === 0));
+    assert.ok(ink.slice(-384 * FEED).every(value => value === 0));
   }
+});
+
+test('image size keeps artwork centered, reduces paper length, and uses only the selected end spacing', () => {
+  const source = createCanvas(352, 200), ctx = source.getContext('2d');
+  ctx.fillStyle = 'black'; ctx.fillRect(0, 0, source.width, source.height);
+  for (const imageScale of [1, 0.5, 0.1]) {
+    for (const endSpace of [0, 8, 16, 64]) {
+      const canvas = imageCanvas(source, DEFAULT_FEED_SCALE, { imageScale, endSpace });
+      const width = Math.round(352 * imageScale), height = Math.round(200 * imageScale);
+      assert.equal(canvas.height, START_SPACE + height + endSpace);
+      const ink = toInk(canvas);
+      for (let y = 0; y < canvas.height; y++) {
+        const row = ink.slice(y * 384, (y + 1) * 384);
+        const hasImage = y >= START_SPACE && y < START_SPACE + height;
+        assert.equal(row.reduce((a, b) => a + b, 0), hasImage ? width : 0);
+        if (hasImage) assert.equal(row.indexOf(1), Math.floor((384 - width) / 2));
+      }
+    }
+  }
+});
+
+test('text and QR end spacing changes paper length without changing content or QR readability', () => {
+  for (const render of [endSpace => textCanvas('Hello', { endSpace }), endSpace => qrCanvas('https://example.com', 240, { endSpace })]) {
+    const short = render(0), longer = render(64);
+    assert.equal(longer.height - short.height, 64);
+    assert.deepEqual(toInk(longer).slice(0, short.height * 384), toInk(short));
+    assert.ok(toInk(longer).slice(-64 * 384).every(value => value === 0));
+  }
+  const qr = qrCanvas('https://example.com', 240, { endSpace: 0 });
+  assert.equal(jsQR(rgba(toInk(qr)), 384, qr.height)?.data, 'https://example.com');
 });
 
 test('smooth strokes have round endpoints, dots work, and erasing restores white pixels', () => {
