@@ -1,0 +1,8 @@
+.probe/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.exe
+runs/
+node_modules/
+.DS_Store
