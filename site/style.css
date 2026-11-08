@@ -41,8 +41,8 @@ h1 { font-size: clamp(27px, 3.3vw, 42px); font-weight: 650; letter-spacing: -1.8
 .small-label { font-size: 9px; letter-spacing: 1px; color: #7d8376; }
 fieldset { border: 0; padding: 24px 25px 0; margin: 0; min-width: 0; }
 .tabs { display: flex; background: #f2f3ef; padding: 4px; border-radius: 9px; margin-bottom: 25px; gap: 4px; }
-.tabs button { width: 50%; border: 0; border-radius: 6px; background: transparent; color: #737b68; font-size: 17px; padding: 8px; font-weight: 600; }
-.tabs button span { font-size: 12px; margin-left: 7px; }
+.tabs button { flex: 1; min-width: 0; border: 0; border-radius: 6px; background: transparent; color: #737b68; font-size: 18px; padding: 8px 2px; font-weight: 600; }
+.tabs button span { display: block; font-size: 10px; margin-top: 4px; white-space: nowrap; }
 .tabs button[aria-selected=true] { background: #fff; color: #2c58e6; box-shadow: 0 1px 4px #1b290a12; }
 .label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 11px; }
 textarea { display: block; width: 100%; height: 222px; resize: vertical; min-height: 130px; max-height: 500px; border: 1px solid #dfe3d9; background: #fdfdfa; border-radius: 8px; padding: 16px; font-size: 15px; line-height: 1.65; color: #353e30; }
@@ -106,6 +106,36 @@ input[type=range] { accent-color: var(--blue); width: 100%; margin: 16px 0 7px; 
 progress { width: 100%; height: 5px; accent-color: var(--blue); margin: 0 0 13px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 fieldset:disabled { opacity: .6; }
+.tab-hint { color: #6e795f; font-size: 11px; line-height: 1.6; margin: 12px 0; }
+.qr-size-control { margin-top: 16px; max-width: 230px; }
+#qr-text { height: 150px; }
+.search-row { display: flex; gap: 8px; }
+.search-row input { min-width: 0; width: 100%; border: 1px solid #dfe3d9; border-radius: 7px; padding: 10px; font-size: 13px; }
+.search-button { background: var(--blue); color: white; }
+.graphics-filter { margin-top: 14px; }
+.graphics-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; max-height: 440px; overflow: auto; padding: 3px; }
+.graphic-card { display: flex; flex-direction: column; text-align: left; background: white; border: 1px solid #e0e5d9; border-radius: 8px; padding: 6px; min-width: 0; }
+.graphic-card:hover { background: #f5f7f0; }
+.graphic-card[aria-pressed=true] { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.graphic-card img { width: 100%; height: 100px; object-fit: contain; background: #f7f8f4; border-radius: 4px; }
+.graphic-card strong { display: block; font-size: 10px; font-weight: 500; margin-top: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.graphic-card small { color: #6e795f; font-size: 9px; margin-top: 4px; }
+#graphics-more { margin: 14px auto 0; }
+.selected-graphic { background: #f2f5eb; border-radius: 8px; padding: 14px; margin-top: 17px; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+.selected-graphic p { margin: 6px 0; }
+.selected-graphic a { color: #3155b9; }
+.secondary { background: #f0f3e9; color: #566448; border: 1px solid #dbe1d1; font-size: 11px; padding: 9px 11px; }
+.secondary:disabled { opacity: .4; }
+.drawing-tools { display: flex; align-items: end; gap: 9px; margin-bottom: 15px; }
+.drawing-tools .control { flex: 1; }
+.brush-control { position: relative; }
+.brush-control output { position: absolute; top: 0; right: 0; }
+.brush-control input { margin: 13px 0 17px; }
+#draw-canvas { width: 100%; height: auto; display: block; background: white; border: 1px solid #dce2d4; border-radius: 7px; cursor: crosshair; touch-action: none; }
+#draw-canvas[aria-disabled=true] { pointer-events: none; }
+.calibration { border-top: 1px solid #eceee7; padding: 16px 0 22px; font-size: 11px; color: #758168; }
+.calibration summary { cursor: pointer; }
+.calibration .label { display: flex; justify-content: space-between; margin-top: 18px; font-size: 11px; }
 @media (min-width: 1600px) { main { padding-top: 55px; } .intro { margin-bottom: 40px; } }
 @media (max-width: 1200px) { main, .page-footer { margin-left: 36px; margin-right: 36px; } }
 @media (max-width: 760px) {

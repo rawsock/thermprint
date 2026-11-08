@@ -1,9 +1,20 @@
 import { Printer, WIDTH } from './protocol.js';
-import { textCanvas, imageCanvas, monochrome, drawInk } from './raster.js';
+import { textCanvas, imageCanvas, monochrome, drawInk, calibrateInk, DEFAULT_FEED_SCALE } from './raster.js';
+import { qrCanvas } from './qr.js';
+import { setupDrawing } from './drawing.js';
+import { setupGallery } from './gallery-ui.js';
 
 const $ = id => document.getElementById(id);
 const supported = Boolean(navigator.bluetooth && window.isSecureContext);
 let mode = 'text', loadedImage = null, imageVersion = 0, preview = null;
+let graphic = null, graphicLoading = false;
+const modes = ['text', 'image', 'qr', 'graphics', 'draw'];
+let feedScale = DEFAULT_FEED_SCALE;
+try {
+  const saved = Number(localStorage.getItem('thermprint-feed-scale'));
+  if (saved >= 0.8 && saved <= 1.4) feedScale = saved;
+} catch { /* Storage can be disabled; calibration still works for this visit. */ }
+$('feed-scale').value = (feedScale * 100).toFixed(1);
 let connecting = false, printing = false, stopped = false;
 const logLines = [];
 
@@ -41,27 +52,34 @@ function updateButtons() {
   $('print').textContent = printing ? 'Printing…' : '↳  Print this';
   $('stop').hidden = !printing;
   $('editor-controls').disabled = printing;
+  $('draw-canvas').setAttribute('aria-disabled', String(printing));
   $('download').disabled = !preview;
 }
 
 function render() {
   preview = null;
   $('preview-error').hidden = true;
-  const empty = mode === 'text' ? !$('text').value.trim() : !loadedImage;
+  const empty = mode === 'text' ? !$('text').value.trim() : mode === 'image' ? !loadedImage :
+    mode === 'qr' ? !$('qr-text').value.trim() : mode === 'graphics' ? !graphic || graphicLoading : false;
   $('preview-empty').hidden = !empty;
-  $('preview-empty').textContent = mode === 'text' ? 'Add some text to see your print.' : 'Choose an image to see your print.';
+  $('preview-empty').textContent = { text: 'Add some text to see your print.', image: 'Choose an image to see your print.',
+    qr: 'Enter a link or message to make a QR code.', graphics: graphicLoading ? 'Loading your graphic…' : 'Search and select a graphic to print.', draw: 'Draw something to see your print.' }[mode];
   $('paper').hidden = empty;
   $('threshold-value').value = $('threshold').value;
+  $('feed-scale-value').value = `${(feedScale * 100).toFixed(1)}%`;
+  $('dither').disabled = mode === 'qr';
+  $('threshold').disabled = mode === 'qr';
   try {
     if (!empty) {
       const source = mode === 'text' ? textCanvas($('text').value, {
         size: Number($('font-size').value), align: $('alignment').value, bold: $('bold').checked,
-      }) : imageCanvas(loadedImage);
+      }) : mode === 'qr' ? qrCanvas($('qr-text').value, Number($('qr-size').value)) :
+        imageCanvas(mode === 'image' ? loadedImage : mode === 'graphics' ? graphic : $('draw-canvas'), feedScale);
       const rgba = source.getContext('2d').getImageData(0, 0, WIDTH, source.height).data;
-      const ink = monochrome(rgba, WIDTH, source.height, { threshold: Number($('threshold').value), dither: $('dither').checked });
-      if (!ink.some(Boolean)) throw new Error('This preview is blank. Add darker content or increase the ink balance.');
+      const ink = monochrome(rgba, WIDTH, source.height, { threshold: mode === 'qr' ? 128 : Number($('threshold').value), dither: mode !== 'qr' && $('dither').checked });
+      if (!ink.some(Boolean)) throw new Error(mode === 'draw' ? 'Draw something on the canvas to get started.' : 'This preview is blank. Add darker content or increase the ink balance.');
       drawInk($('preview-canvas'), ink, source.height);
-      preview = { ink, height: source.height };
+      preview = { ...calibrateInk(ink, source.height, feedScale), artworkHeight: source.height };
     }
   } catch (error) {
     $('paper').hidden = true;
@@ -69,13 +87,13 @@ function render() {
     $('preview-error').hidden = false;
   }
   $('dimensions').textContent = preview ? `384 × ${preview.height} dots` : '384 dots wide';
-  $('paper-length').textContent = preview ? `About ${Math.round(preview.height / 8)} mm long` : '';
+  $('paper-length').textContent = preview ? `About ${Math.round(preview.artworkHeight / 8)} mm long` : '';
   updateButtons();
 }
 
 function selectMode(next) {
   mode = next;
-  for (const name of ['text', 'image']) {
+  for (const name of modes) {
     $(`${name}-tab`).setAttribute('aria-selected', String(name === mode));
     $(`${name}-tab`).tabIndex = name === mode ? 0 : -1;
     $(`${name}-panel`).hidden = name !== mode;
@@ -166,17 +184,27 @@ $('download').addEventListener('click', () => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, 'image/png');
 });
-for (const name of ['text', 'image']) {
+for (const name of modes) {
   $(`${name}-tab`).addEventListener('click', () => selectMode(name));
   $(`${name}-tab`).addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const next = event.key === 'Home' ? 'text' : event.key === 'End' ? 'image' : mode === 'text' ? 'image' : 'text';
+    const next = event.key === 'Home' ? modes[0] : event.key === 'End' ? modes.at(-1) :
+      modes[(modes.indexOf(mode) + (event.key === 'ArrowRight' ? 1 : modes.length - 1)) % modes.length];
     selectMode(next);
     $(`${next}-tab`).focus();
   });
 }
-for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither']) $(id).addEventListener('input', render);
+for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'qr-text', 'qr-size']) $(id).addEventListener('input', render);
+function saveCalibration() {
+  try { localStorage.setItem('thermprint-feed-scale', String(feedScale)); } catch { /* Optional persistence. */ }
+  render();
+}
+$('feed-scale').addEventListener('input', () => { feedScale = Number($('feed-scale').value) / 100; saveCalibration(); });
+$('feed-reset').addEventListener('click', () => { feedScale = DEFAULT_FEED_SCALE; $('feed-scale').value = (feedScale * 100).toFixed(1); saveCalibration(); });
+$('draw-size').addEventListener('input', () => { $('draw-size-value').value = $('draw-size').value; });
+setupDrawing($('draw-canvas'), { tool: $('draw-tool'), size: $('draw-size'), undo: $('draw-undo'), clear: $('draw-clear'), onChange: render });
+setupGallery({ onLoading: value => { graphicLoading = value; render(); }, onSelect: bitmap => { graphic?.close(); graphic = bitmap; } });
 $('image-file').addEventListener('change', event => { loadImage(event.target.files[0]); event.target.value = ''; });
 $('drop-zone').addEventListener('dragover', event => { event.preventDefault(); $('drop-zone').classList.add('dragging'); });
 $('drop-zone').addEventListener('dragleave', () => $('drop-zone').classList.remove('dragging'));

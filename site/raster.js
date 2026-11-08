@@ -2,6 +2,21 @@ import { WIDTH, MAX_HEIGHT } from './protocol.js';
 
 export const FEED = 64;
 export const MARGIN = 16;
+// A circular print measured 29 mm across but only 25.5 mm along the paper feed.
+export const DEFAULT_FEED_SCALE = 29 / 25.5;
+
+export function calibrateInk(ink, height, scale = DEFAULT_FEED_SCALE) {
+  if (!Number.isFinite(scale) || scale < 0.8 || scale > 1.4) throw new Error('Paper-feed correction must be between 80% and 140%.');
+  if (ink.length !== WIDTH * height) throw new Error('Invalid print pixels.');
+  const rows = Math.round(height * scale);
+  if (rows > MAX_HEIGHT) throw new Error('This print is too long with paper-feed correction. Shorten it or reduce the text size.');
+  const corrected = new Uint8Array(WIDTH * rows);
+  for (let y = 0; y < rows; y++) {
+    const source = Math.min(height - 1, Math.floor(y * height / rows));
+    corrected.set(ink.subarray(source * WIDTH, (source + 1) * WIDTH), y * WIDTH);
+  }
+  return { ink: corrected, height: rows };
+}
 
 export function monochrome(rgba, width, height, { threshold = 160, dither = true } = {}) {
   if (rgba.length !== width * height * 4) throw new Error('Invalid image pixels.');
@@ -48,7 +63,7 @@ export function wrapText(text, measure, maxWidth) {
   return lines;
 }
 
-function paper(height) {
+export function paper(height) {
   if (height > MAX_HEIGHT) throw new Error('This print is too long. Shorten the text or use a smaller font (maximum about 19 cm).');
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
@@ -75,9 +90,9 @@ export function textCanvas(text, { size = 26, align = 'left', bold = false } = {
   return canvas;
 }
 
-export function imageCanvas(image) {
+export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE) {
   const maxWidth = WIDTH - MARGIN * 2;
-  const maxHeight = MAX_HEIGHT - MARGIN * 2 - FEED;
+  const maxHeight = Math.min(MAX_HEIGHT, Math.floor(MAX_HEIGHT / scaleY)) - MARGIN * 2 - FEED;
   const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));

@@ -33,6 +33,9 @@
           <div class="tabs" role="tablist" aria-label="Content type">
             <button id="text-tab" role="tab" aria-selected="true" aria-controls="text-panel" type="button">Aa <span>Text</span></button>
             <button id="image-tab" role="tab" aria-selected="false" aria-controls="image-panel" tabindex="-1" type="button">▧ <span>Image</span></button>
+            <button id="qr-tab" role="tab" aria-selected="false" aria-controls="qr-panel" tabindex="-1" type="button">▦ <span>QR code</span></button>
+            <button id="graphics-tab" role="tab" aria-selected="false" aria-controls="graphics-panel" tabindex="-1" type="button">⌕ <span>Graphics</span></button>
+            <button id="draw-tab" role="tab" aria-selected="false" aria-controls="draw-panel" tabindex="-1" type="button">✎ <span>Draw</span></button>
           </div>
           <div id="text-panel" role="tabpanel" aria-labelledby="text-tab">
             <label for="text" class="label">A note, a list, a little reminder</label>
@@ -51,16 +54,44 @@ Enjoy the small things.</textarea>
             <label id="drop-zone" class="drop-zone" for="image-file"><span class="upload-symbol" aria-hidden="true">↥</span><strong>Give a photo a paper home</strong><span>Drop an image here, or choose a file</span><span class="file-label">Choose image</span><small>PNG, JPEG, WebP · up to 15 MB</small><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
             <p id="image-name" class="image-name">No image selected</p>
           </div>
+          <div id="qr-panel" role="tabpanel" aria-labelledby="qr-tab" hidden>
+            <label for="qr-text" class="label">A link or message to scan</label>
+            <textarea id="qr-text" maxlength="700" placeholder="https://example.com" spellcheck="false"></textarea>
+            <label class="control qr-size-control">QR size<select id="qr-size"><option value="240">Small · up to 30 mm</option><option value="320" selected>Medium · up to 40 mm</option><option value="352">Large · up to 44 mm</option></select></label>
+            <p class="tab-hint">Generated on your device. A white border keeps the code easy to scan.</p>
+          </div>
+          <div id="graphics-panel" role="tabpanel" aria-labelledby="graphics-tab" hidden>
+            <form id="graphics-form">
+              <label for="graphics-query" class="label">Find something to print</label>
+              <div class="search-row"><input id="graphics-query" type="search" maxlength="160" placeholder="Try cat, flower, bicycle…" required><button id="graphics-search" class="button search-button" type="submit">Search</button></div>
+              <label class="check graphics-filter"><input id="graphics-drawings" type="checkbox" checked> Illustrations only</label>
+            </form>
+            <p class="tab-hint">Search Wikimedia Commons. Select a graphic to put it straight on the paper.</p>
+            <p id="graphics-status" class="tab-hint" role="status" aria-live="polite">Your search is sent to Wikimedia; your print content stays here.</p>
+            <div id="graphics-gallery" class="graphics-gallery" aria-label="Graphics search results"></div>
+            <button id="graphics-more" type="button" class="button secondary" hidden>Load more</button>
+            <div id="graphics-selection" class="selected-graphic" hidden><strong id="graphics-selected-title"></strong><p id="graphics-credit"></p><a id="graphics-source" target="_blank" rel="noopener noreferrer">Source and reuse terms ↗</a><p class="tab-hint">Keep the creator credit and follow the linked license when sharing your print.</p></div>
+          </div>
+          <div id="draw-panel" role="tabpanel" aria-labelledby="draw-tab" hidden>
+            <div class="drawing-tools">
+              <label class="control">Tool<select id="draw-tool"><option value="pen">Pen</option><option value="eraser">Eraser</option></select></label>
+              <label class="control brush-control" for="draw-size">Size <output id="draw-size-value">6</output><input id="draw-size" type="range" min="1" max="40" value="6"></label>
+              <button id="draw-undo" class="button secondary" type="button" disabled>Undo</button><button id="draw-clear" class="button secondary" type="button">Clear</button>
+            </div>
+            <canvas id="draw-canvas" width="384" height="384" aria-label="Drawing canvas. Draw with a mouse, stylus, or finger." aria-disabled="false"></canvas>
+            <p class="tab-hint">Draw with your finger, mouse, or stylus. Clear can be undone.</p>
+          </div>
           <div class="divider"></div>
           <div class="adjustment-heading"><label for="threshold" class="label">Ink balance</label><output id="threshold-value" for="threshold">160</output></div>
           <input id="threshold" type="range" min="50" max="230" value="160">
           <div class="range-labels"><span>Lighter</span><span>Darker</span></div>
           <label class="check dither"><input id="dither" type="checkbox"><span><strong>Photo dithering</strong><small>Use tiny dots to bring out shades and detail.</small></span></label>
+          <details class="calibration"><summary>Paper-feed calibration</summary><label for="feed-scale" class="label">Vertical correction <output id="feed-scale-value">113.7%</output></label><input id="feed-scale" type="range" min="80" max="140" step="0.1" value="113.7"><p class="tab-hint">Corrects the printer’s vertical squeeze so circles stay round. Applies to every tab. Use 100% for no correction.</p><button id="feed-reset" class="text-button" type="button">Reset to measured correction</button></details>
         </fieldset>
-        <p class="local-note"><span aria-hidden="true">↳</span> Your text and images stay in this browser.</p>
+        <p class="local-note"><span aria-hidden="true">↳</span> Prints stay local. Graphics searches go to Wikimedia.</p>
       </section>
       <section class="preview panel" aria-labelledby="preview-title">
-        <div class="panel-heading"><h2 id="preview-title"><span class="step">02</span> On the paper</h2><button id="download" type="button" class="text-button" title="Download the exact monochrome print as a PNG">Save PNG <span aria-hidden="true">↗</span></button></div>
+        <div class="panel-heading"><h2 id="preview-title"><span class="step">02</span> On the paper</h2><button id="download" type="button" class="text-button" title="Save the monochrome artwork, before printer-specific feed correction">Save PNG <span aria-hidden="true">↗</span></button></div>
         <div class="preview-stage">
           <div class="paper-width"><span></span>48 mm printable width<span></span></div>
           <div class="paper" id="paper"><canvas id="preview-canvas" width="384" height="320" role="img" aria-label="Monochrome preview of your print"></canvas></div>
@@ -76,7 +107,7 @@ Enjoy the small things.</textarea>
         </div>
       </section>
     </div>
-    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview is the exact black-and-white image sent to the printer. Prints include a little blank paper at the end for tearing. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
+    <details class="help"><summary>First time here? A few useful things.</summary><div class="help-content"><p><strong>Connect.</strong> Use Chrome on Android, or Chrome / Edge on Windows or macOS. Power on the printer, close Funny Print, then choose SWS-PT1 in the Bluetooth dialog. Safari and Firefox cannot connect.</p><p><strong>Print.</strong> The preview shows your artwork in its intended proportions. Paper-feed correction adds rows during printing to compensate for the printer’s vertical squeeze. Prints include blank paper for tearing. Keep this tab open while printing.</p><p><strong>Reconnect.</strong> This printer sleeps after inactivity. If it disappears, switch it on and connect again. Stopping a transfer cannot recall lines already buffered by the printer.</p></div></details>
     <details class="diagnostics"><summary>Connection log</summary><pre id="log" aria-label="Connection log">Ready to connect.</pre></details>
   </main>
   <footer class="page-footer"><span>Made for little moments on paper.</span><a href="https://github.com/rawsock/thermprint" target="_blank" rel="noopener noreferrer">ThermPrint on GitHub ↗</a></footer>
