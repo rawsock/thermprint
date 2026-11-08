@@ -1,5 +1,5 @@
 import { Printer, WIDTH } from './protocol.js';
-import { textCanvas, imageCanvas, drawInk, preparePrint, DEFAULT_FEED_SCALE } from './raster.js';
+import { textCanvas, imageCanvas, drawInk, drawPreview, preparePrint, DEFAULT_FEED_SCALE } from './raster.js';
 import { qrCanvas } from './qr.js';
 import { setupDrawing } from './drawing.js';
 import { setupGallery } from './gallery-ui.js';
@@ -72,13 +72,13 @@ function render() {
   $('feed-scale-value').value = `${(feedScale * 100).toFixed(1)}%`;
   $('dither').disabled = mode === 'qr';
   $('threshold').disabled = mode === 'qr';
-  $('dither-options').hidden = mode === 'qr' || !$('dither').checked;
+  $('dither-options').disabled = mode === 'qr' || !$('dither').checked;
   $('contrast-value').value = `${$('contrast').value}%`;
-  $('image-scale-control').hidden = !['image', 'graphics', 'draw'].includes(mode);
+  $('image-scale-control').disabled = !['image', 'graphics', 'draw'].includes(mode);
   $('image-scale-value').value = `${$('image-scale').value}%`;
   try {
     if (!empty) {
-      const spacing = { endSpace: Number($('end-space').value) };
+      const spacing = { startSpace: Number($('start-space').value), endSpace: Number($('end-space').value) };
       const source = mode === 'text' ? textCanvas($('text').value, {
         size: Number($('font-size').value), align: $('alignment').value, bold: $('bold').checked, ...spacing,
       }) : mode === 'qr' ? qrCanvas($('qr-text').value, Number($('qr-size').value), spacing) :
@@ -90,7 +90,9 @@ function render() {
         method: $('dither-method').value, contrast: Number($('contrast').value), sharpen: $('sharpen').checked, feedScale,
       });
       if (!result.ink.some(Boolean)) throw new Error(mode === 'draw' ? 'Draw something on the canvas to get started.' : 'This preview is blank. Add darker content or increase the ink balance.');
-      drawInk($('preview-canvas'), result.artworkInk, source.height);
+      const soft = $('preview-style').value === 'paper';
+      $('preview-canvas').classList.toggle('exact-dots', !soft);
+      drawPreview($('preview-canvas'), result.artworkInk, source.height, soft);
       preview = result;
     }
   } catch (error) {
@@ -189,7 +191,9 @@ $('print').addEventListener('click', async () => {
 $('stop').addEventListener('click', () => { stopped = true; printer.disconnect(); message('Stopping…'); });
 $('download').addEventListener('click', () => {
   if (!preview) return;
-  $('preview-canvas').toBlob(blob => {
+  const artwork = document.createElement('canvas');
+  drawInk(artwork, preview.artworkInk, preview.artworkHeight);
+  artwork.toBlob(blob => {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -210,13 +214,14 @@ for (const name of modes) {
     $(`${next}-tab`).focus();
   });
 }
-for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'end-space', 'image-scale']) $(id).addEventListener('input', render);
+for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'start-space', 'end-space', 'image-scale', 'preview-style']) $(id).addEventListener('input', render);
 function saveCalibration() {
   try { localStorage.setItem('thermprint-feed-scale', String(feedScale)); } catch { /* Optional persistence. */ }
   render();
 }
 $('feed-scale').addEventListener('input', () => { feedScale = Number($('feed-scale').value) / 100; saveCalibration(); });
 $('feed-reset').addEventListener('click', () => { feedScale = DEFAULT_FEED_SCALE; $('feed-scale').value = (feedScale * 100).toFixed(1); saveCalibration(); });
+$('feed-neutral').addEventListener('click', () => { feedScale = 1; $('feed-scale').value = '100'; saveCalibration(); });
 $('draw-size').addEventListener('input', () => { $('draw-size-value').value = $('draw-size').value; });
 setupDrawing($('draw-canvas'), { tool: $('draw-tool'), size: $('draw-size'), undo: $('draw-undo'), clear: $('draw-clear'), onChange: render });
 setupGallery({ onLoading: value => { graphicLoading = value; render(); }, onSelect: bitmap => { graphic?.close(); graphic = bitmap; } });

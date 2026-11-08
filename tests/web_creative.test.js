@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
 import jsQR from 'jsqr';
 import { qrCanvas } from '../site/qr.js';
-import { monochrome, calibrateInk, preparePrint, DEFAULT_FEED_SCALE, imageCanvas, textCanvas, FEED, START_SPACE } from '../site/raster.js';
+import { monochrome, calibrateInk, preparePrint, drawInk, drawPreview, DEFAULT_FEED_SCALE, imageCanvas, textCanvas, FEED, START_SPACE } from '../site/raster.js';
+import { rasterPackets } from '../site/protocol.js';
 import { drawStroke, canvasPoint, setupDrawing } from '../site/drawing.js';
 
 globalThis.document = { createElement: tag => {
@@ -87,6 +88,74 @@ test('text and QR end spacing changes paper length without changing content or Q
   }
   const qr = qrCanvas('https://example.com', 240, { endSpace: 0 });
   assert.equal(jsQR(rgba(toInk(qr)), 384, qr.height)?.data, 'https://example.com');
+});
+
+test('paper preview softens screen dots while preserving exact export and print pixels', () => {
+  const ink = new Uint8Array(384 * 24);
+  for (let y = 0; y < 24; y++) for (let x = 0; x < 384; x++) ink[y * 384 + x] = (x + y) % 2;
+  const original = ink.slice();
+  const soft = createCanvas(1, 1), exact = createCanvas(1, 1), exported = createCanvas(1, 1);
+  drawPreview(soft, ink, 24);
+  drawPreview(exact, ink, 24, false);
+  drawInk(exported, ink, 24);
+  const pixels = canvas => canvas.getContext('2d').getImageData(0, 0, 384, 24).data;
+  assert.ok(pixels(soft).some((value, index) => index % 4 !== 3 && value > 0 && value < 255));
+  assert.deepEqual(pixels(exact), pixels(exported));
+  assert.deepEqual(toInk(exported), original);
+  assert.deepEqual(ink, original);
+});
+
+test('start and end spacing add only the requested rows and preserve QR quiet zones', () => {
+  const source = createCanvas(352, 100), ctx = source.getContext('2d');
+  ctx.fillStyle = 'black'; ctx.fillRect(0, 0, 352, 100);
+  for (const render of [options => imageCanvas(source, 1, options), options => textCanvas('Hello', options), options => qrCanvas('test', 240, options)]) {
+    const bare = render({ startSpace: 0, endSpace: 0 });
+    const padded = render({ startSpace: 8, endSpace: 32 });
+    assert.equal(padded.height, bare.height + 40);
+    const ink = toInk(padded);
+    assert.ok(ink.slice(0, 8 * 384).every(value => value === 0));
+    assert.ok(ink.slice(-32 * 384).every(value => value === 0));
+    assert.deepEqual(ink.slice(8 * 384, -32 * 384), toInk(bare));
+  }
+  const qr = qrCanvas('test', 240, { startSpace: 0, endSpace: 0 });
+  assert.equal(jsQR(rgba(toInk(qr)), 384, qr.height)?.data, 'test');
+});
+
+test('correction retains edge rows and packets contain every encoded row, including odd heights', () => {
+  for (const height of [3, 7, 127, 1001]) {
+    const ink = new Uint8Array(384 * height);
+    ink.fill(1, 0, 384); ink.fill(1, -384);
+    for (let y = 1; y < height - 1; y++) ink[y * 384 + y % 384] = 1;
+    for (const scale of [0.8, 1, DEFAULT_FEED_SCALE, 1.4]) {
+      const result = calibrateInk(ink, height, scale);
+      assert.ok(result.ink.slice(0, 384).every(Boolean));
+      assert.ok(result.ink.slice(-384).every(Boolean), 'last image row is retained');
+      const unpacked = Uint8Array.from(rasterPackets(result.ink, result.height).flatMap(packet =>
+        [...packet.slice(3, 99)].flatMap(byte => Array.from({ length: 8 }, (_, bit) => (byte >> (7 - bit)) & 1))));
+      assert.deepEqual(unpacked.slice(0, result.ink.length), result.ink);
+      assert.ok(unpacked.slice(result.ink.length).every(value => value === 0));
+    }
+  }
+});
+
+test('QR artwork is square and vertical compensation is applied exactly once', () => {
+  const canvas = qrCanvas('https://thermprint.github.io/', 320);
+  const bounds = (ink, height) => {
+    let left = 384, right = 0, top = height, bottom = 0;
+    for (let y = 0; y < height; y++) for (let x = 0; x < 384; x++) if (ink[y * 384 + x]) {
+      left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+    }
+    return [right - left + 1, bottom - top + 1];
+  };
+  const original = bounds(toInk(canvas), canvas.height);
+  assert.equal(original[0], original[1]);
+  for (const feedScale of [1, DEFAULT_FEED_SCALE, 1.4]) {
+    const result = preparePrint(canvas.getContext('2d').getImageData(0, 0, 384, canvas.height).data, canvas.height, { dither: false, threshold: 128, feedScale });
+    assert.deepEqual(bounds(result.artworkInk, canvas.height), original);
+    const corrected = bounds(result.ink, result.height);
+    assert.equal(corrected[0], original[0]);
+    assert.ok(Math.abs(corrected[1] - original[1] * feedScale) <= 1);
+  }
 });
 
 test('smooth strokes have round endpoints, dots work, and erasing restores white pixels', () => {

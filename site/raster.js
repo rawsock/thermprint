@@ -18,7 +18,7 @@ export function calibrateInk(ink, height, scale = DEFAULT_FEED_SCALE) {
   const rows = calibratedRows(height, scale);
   const corrected = new Uint8Array(WIDTH * rows);
   for (let y = 0; y < rows; y++) {
-    const source = Math.min(height - 1, Math.floor(y * height / rows));
+    const source = Math.min(height - 1, Math.floor((y + 0.5) * height / rows));
     corrected.set(ink.subarray(source * WIDTH, (source + 1) * WIDTH), y * WIDTH);
   }
   return { ink: corrected, height: rows };
@@ -149,33 +149,33 @@ export function paper(height) {
   return { canvas, ctx };
 }
 
-export function textCanvas(text, { size = 26, align = 'left', bold = false, endSpace = FEED } = {}) {
+export function textCanvas(text, { size = 26, align = 'left', bold = false, startSpace = START_SPACE, endSpace = FEED } = {}) {
   const font = `${bold ? 700 : 400} ${size}px Arial, sans-serif`;
   const measure = document.createElement('canvas').getContext('2d');
   measure.font = font;
   const lines = wrapText(text, value => measure.measureText(value).width, WIDTH - MARGIN * 2);
   const lineHeight = Math.ceil(size * 1.35);
-  const { canvas, ctx } = paper(START_SPACE + lines.length * lineHeight + endSpace);
+  const { canvas, ctx } = paper(startSpace + lines.length * lineHeight + endSpace);
   ctx.font = font;
   ctx.fillStyle = '#000';
   ctx.textBaseline = 'top';
   ctx.textAlign = align;
   const x = align === 'center' ? WIDTH / 2 : align === 'right' ? WIDTH - MARGIN : MARGIN;
-  lines.forEach((line, i) => ctx.fillText(line, x, START_SPACE + i * lineHeight));
+  lines.forEach((line, i) => ctx.fillText(line, x, startSpace + i * lineHeight));
   return canvas;
 }
 
-export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE, { endSpace = FEED, imageScale = 1 } = {}) {
+export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE, { startSpace = START_SPACE, endSpace = FEED, imageScale = 1 } = {}) {
   if (!Number.isFinite(imageScale) || imageScale < 0.1 || imageScale > 1) throw new Error('Image size must be between 10% and 100%.');
   const maxWidth = WIDTH - MARGIN * 2;
-  const maxHeight = Math.min(MAX_HEIGHT, Math.floor(MAX_HEIGHT / scaleY)) - START_SPACE - endSpace;
+  const maxHeight = Math.min(MAX_HEIGHT, Math.floor(MAX_HEIGHT / scaleY)) - startSpace - endSpace;
   const scale = Math.min(maxWidth / image.width, maxHeight / image.height) * imageScale;
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
-  const { canvas, ctx } = paper(height + START_SPACE + endSpace);
+  const { canvas, ctx } = paper(height + startSpace + endSpace);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(image, Math.floor((WIDTH - width) / 2), START_SPACE, width, height);
+  ctx.drawImage(image, Math.floor((WIDTH - width) / 2), startSpace, width, height);
   return canvas;
 }
 
@@ -187,6 +187,31 @@ export function drawInk(canvas, ink, height) {
   for (let i = 0; i < ink.length; i++) {
     pixels.data.fill(ink[i] ? 0 : 255, i * 4, i * 4 + 3);
     pixels.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(pixels, 0, 0);
+}
+
+export function drawPreview(canvas, ink, height, soft = true) {
+  if (!soft) { drawInk(canvas, ink, height); return; }
+  canvas.width = WIDTH;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(WIDTH, height);
+  const horizontal = new Float32Array(ink.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      const i = y * WIDTH + x;
+      horizontal[i] = (ink[y * WIDTH + Math.max(0, x - 1)] + 6 * ink[i] + ink[y * WIDTH + Math.min(WIDTH - 1, x + 1)]) / 8;
+    }
+  }
+  // A mild optical blend and softer ink tone approximate paper at screen size.
+  // The binary raster is untouched; PNG export uses drawInk instead.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      const i = y * WIDTH + x;
+      const coverage = (horizontal[Math.max(0, y - 1) * WIDTH + x] + 6 * horizontal[i] + horizontal[Math.min(height - 1, y + 1) * WIDTH + x]) / 8;
+      pixels.data.fill(Math.round(255 - 231 * coverage), i * 4, i * 4 + 3);
+      pixels.data[i * 4 + 3] = 255;
+    }
   }
   ctx.putImageData(pixels, 0, 0);
 }

@@ -56,7 +56,7 @@ input[type=checkbox] { accent-color: var(--blue); width: 16px; height: 16px; mar
 .bold-check { height: 36px; white-space: nowrap; padding: 0 2px 0 4px; }
 .adjustment-heading { display: flex; justify-content: space-between; align-items: center; }
 .adjustment-heading .label { margin: 0; }
-.adjustment-heading output { font-size: 10px; color: #78816e; background: #f2f4ee; padding: 3px 7px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+.adjustment-heading output { font-size: 10px; color: #78816e; background: #f2f4ee; padding: 3px 7px; border-radius: 4px; font-variant-numeric: tabular-nums; min-width: 46px; text-align: center; }
 input[type=range] { accent-color: var(--blue); width: 100%; margin: 16px 0 7px; height: 4px; cursor: pointer; }
 .range-labels { display: flex; justify-content: space-between; font-size: 10px; color: #7d8674; }
 .dither { margin: 18px 0; gap: 11px; }
@@ -72,14 +72,18 @@ input[type=range] { accent-color: var(--blue); width: 100%; margin: 16px 0 7px; 
 .preview { position: sticky; top: 16px; }
 .preview-body { display: grid; grid-template-columns: minmax(0, 1fr) 220px; align-items: stretch; }
 .preview-stage { background: #e9eae4; background-image: radial-gradient(#c9cdc0 .7px, transparent .7px); background-size: 10px 10px; padding: 22px 22px 35px; max-height: min(580px, calc(100dvh - 245px)); min-height: 240px; overflow: auto; }
-#print-settings { padding: 20px 16px; max-height: min(580px, calc(100dvh - 245px)); overflow: auto; }
+#print-settings { padding: 20px 16px; height: max(240px, min(580px, calc(100dvh - 245px))); overflow: auto; scrollbar-gutter: stable; }
+.setting-group { padding: 0; }
+.preview-note { margin: 10px 0 18px; }
+.preview-stage { scrollbar-gutter: stable; }
 #image-scale-control { margin-bottom: 22px; }
 .end-space-control { margin-bottom: 18px; }
 .paper-width { display: flex; align-items: center; gap: 10px; margin: 0 auto 14px; max-width: 384px; font-size: 9px; color: #707b62; white-space: nowrap; }
 .paper-width span { height: 1px; background: #c9cebf; width: 100%; }
 .paper { position: relative; background: white; max-width: 384px; margin: 0 auto; box-shadow: 0 6px 18px #39422a18; }
 .paper:after { content: ""; position: absolute; height: 6px; left: 0; right: 0; bottom: -5px; background: linear-gradient(135deg, #fff 25%, transparent 25%) -3px 0, linear-gradient(225deg, #fff 25%, transparent 25%) -3px 0; background-size: 8px 8px; }
-.paper canvas { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+.paper canvas { width: 100%; height: auto; display: block; image-rendering: auto; }
+.paper canvas.exact-dots { image-rendering: pixelated; }
 .print-footer { padding: 20px 25px 14px; }
 .print-meta { display: flex; justify-content: space-between; color: #78836d; font-size: 10px; margin-bottom: 18px; font-variant-numeric: tabular-nums; }
 .primary { background: var(--blue); color: white; width: 100%; font-size: 13px; padding: 14px; }
@@ -144,7 +148,7 @@ fieldset:disabled { opacity: .6; }
 #draw-canvas { width: 100%; height: auto; display: block; background: white; border: 1px solid #dce2d4; border-radius: 7px; cursor: crosshair; touch-action: none; }
 #draw-canvas[aria-disabled=true] { pointer-events: none; }
 .calibration { border-top: 1px solid #eceee7; padding: 16px 0 0; font-size: 11px; color: #758168; }
-.calibration summary { cursor: pointer; }
+.calibration-actions { display: grid; gap: 8px; justify-items: start; }
 .calibration .label { display: flex; justify-content: space-between; margin-top: 18px; font-size: 11px; }
 @media (min-width: 1600px) { main { padding-top: 55px; } .intro { margin-bottom: 40px; } }
 @media (max-width: 1392px) { main, .page-footer { margin-left: 36px; margin-right: 36px; } }
@@ -168,7 +172,7 @@ fieldset:disabled { opacity: .6; }
   .preview { top: 8px; }
   .preview-body { grid-template-columns: 1fr; }
   .preview-stage { min-height: 140px; height: 28dvh; max-height: 230px; }
-  #print-settings { max-height: max(150px, calc(72dvh - 235px)); padding: 18px 20px; }
+  #print-settings { height: max(150px, calc(72dvh - 235px)); padding: 18px 20px; }
   .print-footer { padding: 14px 20px; }
   .print-meta { margin-bottom: 12px; }
 }
