@@ -5,11 +5,16 @@ export const MARGIN = 16;
 // A circular print measured 29 mm across but only 25.5 mm along the paper feed.
 export const DEFAULT_FEED_SCALE = 29 / 25.5;
 
-export function calibrateInk(ink, height, scale = DEFAULT_FEED_SCALE) {
+function calibratedRows(height, scale) {
   if (!Number.isFinite(scale) || scale < 0.8 || scale > 1.4) throw new Error('Paper-feed correction must be between 80% and 140%.');
-  if (ink.length !== WIDTH * height) throw new Error('Invalid print pixels.');
   const rows = Math.round(height * scale);
   if (rows > MAX_HEIGHT) throw new Error('This print is too long with paper-feed correction. Shorten it or reduce the text size.');
+  return rows;
+}
+
+export function calibrateInk(ink, height, scale = DEFAULT_FEED_SCALE) {
+  if (ink.length !== WIDTH * height) throw new Error('Invalid print pixels.');
+  const rows = calibratedRows(height, scale);
   const corrected = new Uint8Array(WIDTH * rows);
   for (let y = 0; y < rows; y++) {
     const source = Math.min(height - 1, Math.floor(y * height / rows));
@@ -18,29 +23,98 @@ export function calibrateInk(ink, height, scale = DEFAULT_FEED_SCALE) {
   return { ink: corrected, height: rows };
 }
 
-export function monochrome(rgba, width, height, { threshold = 160, dither = true } = {}) {
+function grayscale(rgba, width, height, { threshold = 160, dither = true, contrast = 110, sharpen = true } = {}) {
   if (rgba.length !== width * height * 4) throw new Error('Invalid image pixels.');
   const gray = new Float32Array(width * height);
+  // Change the input tones, not the diffusion threshold: diffusion otherwise
+  // cancels out most of the user's ink adjustment by conserving the same error.
+  const gamma = 2 ** ((threshold - 160) / 80);
+  const clamp = value => Math.max(0, Math.min(255, value));
+  // A midpoint contrast curve keeps black and white fixed, including transparent
+  // backgrounds and the blank tear-off feed. A linear contrast shift would gray them.
+  const tones = Float32Array.from({ length: 256 }, (_, i) => {
+    const level = (i / 255) ** gamma;
+    const light = level ** (contrast / 100), dark = (1 - level) ** (contrast / 100);
+    return 255 * light / (light + dark);
+  });
   for (let i = 0; i < gray.length; i++) {
     const alpha = rgba[i * 4 + 3] / 255;
-    gray[i] = (0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2]) * alpha + 255 * (1 - alpha);
+    const value = clamp((0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2]) * alpha + 255 * (1 - alpha));
+    const lower = Math.floor(value);
+    gray[i] = dither ? tones[lower] + (value - lower) * (tones[Math.min(255, lower + 1)] - tones[lower]) : value;
   }
-  const ink = new Uint8Array(gray.length);
+  if (!dither || !sharpen) return gray;
+  const horizontal = new Float32Array(gray.length);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
-      ink[i] = gray[i] < threshold ? 1 : 0;
-      if (!dither) continue;
-      const error = gray[i] - (ink[i] ? 0 : 255);
-      if (x + 1 < width) gray[i + 1] += error * 7 / 16;
-      if (y + 1 < height) {
-        if (x) gray[i + width - 1] += error * 3 / 16;
-        gray[i + width] += error * 5 / 16;
-        if (x + 1 < width) gray[i + width + 1] += error / 16;
+      horizontal[i] = (gray[y * width + Math.max(0, x - 1)] + 2 * gray[i] + gray[y * width + Math.min(width - 1, x + 1)]) / 4;
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const blurred = (horizontal[Math.max(0, y - 1) * width + x] + 2 * horizontal[i] + horizontal[Math.min(height - 1, y + 1) * width + x]) / 4;
+      gray[i] = clamp(gray[i] + 0.4 * (gray[i] - blurred));
+    }
+  }
+  return gray;
+}
+
+const DIFFUSION = {
+  stucki: { divisor: 42, taps: [[1,0,8], [2,0,4], [-2,1,2], [-1,1,4], [0,1,8], [1,1,4], [2,1,2], [-2,2,1], [-1,2,2], [0,2,4], [1,2,2], [2,2,1]] },
+  atkinson: { divisor: 8, taps: [[1,0,1], [2,0,1], [-1,1,1], [0,1,1], [1,1,1], [0,2,1]] },
+};
+
+function quantize(gray, width, height, { threshold = 160, dither = true, method = 'stucki' } = {}) {
+  const ink = new Uint8Array(gray.length);
+  if (!dither) {
+    for (let i = 0; i < gray.length; i++) ink[i] = gray[i] < threshold ? 1 : 0;
+    return ink;
+  }
+  const kernel = DIFFUSION[method];
+  if (!kernel) throw new Error('Unknown dithering style.');
+  const work = gray.slice();
+  let noise = 0x6d2b79f5;
+  for (let y = 0; y < height; y++) {
+    // Mirror the kernel on alternating rows to avoid a directional dot pattern.
+    const direction = y % 2 ? -1 : 1;
+    for (let x = direction === 1 ? 0 : width - 1; x >= 0 && x < width; x += direction) {
+      const i = y * width + x;
+      // Small, repeatable threshold variation breaks regular worms in flat
+      // photo tones. Error diffusion still conserves the average ink density.
+      noise = (Math.imul(noise, 1664525) + 1013904223) >>> 0;
+      const jitter = method === 'stucki' ? (noise / 4294967296 - 0.5) * 32 : 0;
+      ink[i] = work[i] < 127.5 + jitter ? 1 : 0;
+      const error = (work[i] - (ink[i] ? 0 : 255)) / kernel.divisor;
+      for (const [dx, dy, weight] of kernel.taps) {
+        const nx = x + dx * direction, ny = y + dy;
+        if (nx >= 0 && nx < width && ny < height) work[ny * width + nx] += error * weight;
       }
     }
   }
   return ink;
+}
+
+export function monochrome(rgba, width, height, options = {}) {
+  return quantize(grayscale(rgba, width, height, options), width, height, options);
+}
+
+export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, ...options } = {}) {
+  const rows = calibratedRows(height, feedScale);
+  const gray = grayscale(rgba, WIDTH, height, options);
+  const artworkInk = quantize(gray, WIDTH, height, options);
+  if (options.dither === false) return { ...calibrateInk(artworkInk, height, feedScale), artworkInk, artworkHeight: height };
+  if (rows === height) return { ink: artworkInk, height, artworkInk, artworkHeight: height };
+  const resized = new Float32Array(WIDTH * rows);
+  for (let y = 0; y < rows; y++) {
+    const sourceY = Math.max(0, Math.min(height - 1, (y + 0.5) * height / rows - 0.5));
+    const top = Math.floor(sourceY), bottom = Math.min(height - 1, top + 1), fraction = sourceY - top;
+    for (let x = 0; x < WIDTH; x++) resized[y * WIDTH + x] = gray[top * WIDTH + x] * (1 - fraction) + gray[bottom * WIDTH + x] * fraction;
+  }
+  // Resize continuous tones first. Stretching binary dots duplicates complete
+  // rows and creates regular dark bands at the paper-feed correction interval.
+  return { ink: quantize(resized, WIDTH, rows, options), height: rows, artworkInk, artworkHeight: height };
 }
 
 export function wrapText(text, measure, maxWidth) {
@@ -97,6 +171,8 @@ export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE) {
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
   const { canvas, ctx } = paper(height + MARGIN * 2 + FEED);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(image, Math.floor((WIDTH - width) / 2), MARGIN, width, height);
   return canvas;
 }

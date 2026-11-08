@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { monochrome, wrapText } from '../site/raster.js';
+import { monochrome, wrapText, preparePrint, calibrateInk } from '../site/raster.js';
 
 test('transparent pixels composite onto white and opaque black becomes ink', () => {
   assert.deepEqual([...monochrome(Uint8Array.of(0,0,0,0, 0,0,0,255, 255,255,255,255), 3, 1)], [0,1,0]);
@@ -14,14 +14,95 @@ test('threshold changes monochrome output without affecting solid white', () => 
 
 test('dithering preserves gray detail and is deterministic', () => {
   const pixels = Uint8Array.from({ length: 8 * 8 * 4 }, (_, i) => i % 4 === 3 ? 255 : 128);
-  const ink = monochrome(pixels, 8, 8, { threshold: 128, dither: true });
+  const options = { threshold: 160, contrast: 100, sharpen: false, dither: true };
+  const ink = monochrome(pixels, 8, 8, options);
   const dark = ink.reduce((sum, value) => sum + value, 0);
   assert.ok(dark >= 28 && dark <= 36);
-  assert.deepEqual(monochrome(pixels, 8, 8, { threshold: 128, dither: true }), ink);
+  assert.deepEqual(monochrome(pixels, 8, 8, options), ink);
 });
 
 test('word wrap preserves blank lines and splits oversized Unicode words', () => {
   const measure = text => [...text].length;
   assert.deepEqual(wrapText('Hello world\n\nA😀BCDEF', measure, 5), ['Hello', 'world', '', 'A😀BCD', 'EF']);
   assert.deepEqual(wrapText('Zażółć gęślą', measure, 12), ['Zażółć gęślą']);
+});
+
+const grayPixels = (width, height, value) => Uint8ClampedArray.from({ length: width * height * 4 }, (_, i) => i % 4 === 3 ? 255 : value);
+const coverage = ink => ink.reduce((sum, value) => sum + value, 0) / ink.length;
+
+test('photo dithering preserves the average tone through highlights, midtones and shadows', () => {
+  for (const tone of [32, 64, 96, 128, 160, 192, 224]) {
+    const ink = monochrome(grayPixels(96, 96, tone), 96, 96, { threshold: 160, contrast: 100, sharpen: false });
+    assert.ok(Math.abs(coverage(ink) - (1 - tone / 255)) < 0.025, `Tone ${tone} lost its ink density`);
+  }
+});
+
+test('ink balance changes dithered midtone coverage rather than only moving the dots', () => {
+  const pixels = grayPixels(96, 96, 128);
+  for (const method of ['stucki', 'atkinson']) {
+    const fractions = [80, 160, 220].map(threshold => coverage(monochrome(pixels, 96, 96, { method, threshold, contrast: 100, sharpen: false })));
+    assert.ok(fractions[1] - fractions[0] > 0.15);
+    assert.ok(fractions[2] - fractions[1] > 0.15);
+  }
+});
+
+test('all contrast and ink extremes preserve white paper, transparent pixels and solid black', () => {
+  for (const method of ['stucki', 'atkinson']) for (const contrast of [60, 110, 160]) for (const threshold of [50, 160, 230]) {
+    for (const tone of [0, 255]) {
+      const ink = monochrome(grayPixels(8, 8, tone), 8, 8, { method, contrast, threshold });
+      assert.ok(ink.every(value => value === (tone === 0 ? 1 : 0)));
+    }
+    assert.ok(monochrome(new Uint8Array(8 * 8 * 4), 8, 8, { method, contrast, threshold }).every(value => value === 0));
+  }
+});
+
+test('contrast separates highlights and shadows without changing their ordering', () => {
+  for (const tone of [64, 192]) {
+    const pixels = grayPixels(96, 96, tone);
+    const soft = coverage(monochrome(pixels, 96, 96, { contrast: 60, sharpen: false }));
+    const strong = coverage(monochrome(pixels, 96, 96, { contrast: 160, sharpen: false }));
+    assert.ok(tone < 128 ? strong > soft + 0.1 : soft > strong + 0.1);
+  }
+});
+
+test('photo and illustration styles are deterministic and have distinct highlight treatment', () => {
+  const pixels = grayPixels(96, 96, 224);
+  const smooth = monochrome(pixels, 96, 96, { method: 'stucki' });
+  const crisp = monochrome(pixels, 96, 96, { method: 'atkinson' });
+  assert.deepEqual(monochrome(pixels, 96, 96, { method: 'stucki' }), smooth);
+  assert.deepEqual(monochrome(pixels, 96, 96, { method: 'atkinson' }), crisp);
+  assert.ok(coverage(smooth) > coverage(crisp) + 0.025);
+});
+
+test('feed correction dithers at the final resolution without duplicated whole dot rows', () => {
+  const pixels = grayPixels(384, 128, 128);
+  const result = preparePrint(pixels, 128);
+  assert.equal(result.artworkHeight, 128);
+  assert.equal(result.height, 146);
+  assert.deepEqual(result.artworkInk, monochrome(pixels, 384, 128));
+  assert.notDeepEqual(result.ink, calibrateInk(result.artworkInk, 128).ink);
+  for (let y = 1; y < result.height; y++) {
+    assert.ok(result.ink.subarray(y * 384, (y + 1) * 384).some((value, x) => value !== result.ink[(y - 1) * 384 + x]));
+  }
+  assert.deepEqual(preparePrint(pixels, 128, { feedScale: 1 }).ink, result.artworkInk);
+});
+
+test('photo feed stays white and corrected prints remain bounded', () => {
+  const pixels = grayPixels(384, 200, 128);
+  pixels.fill(255, 384 * 100 * 4);
+  for (const contrast of [60, 160]) {
+    const result = preparePrint(pixels, 200, { contrast });
+    assert.ok(result.ink.slice(-384 * 64).every(value => value === 0));
+  }
+  assert.throws(() => preparePrint(grayPixels(384, 1500, 128), 1500), /too long/);
+});
+
+test('non-dithered output preserves the binary correction used for text and QR codes', () => {
+  const pixels = grayPixels(384, 20, 255);
+  pixels.fill(0, 0, 384 * 10 * 4);
+  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255;
+  const result = preparePrint(pixels, 20, { dither: false });
+  const expected = calibrateInk(monochrome(pixels, 384, 20, { dither: false }), 20);
+  assert.deepEqual(result.ink, expected.ink);
+  assert.equal(result.height, expected.height);
 });

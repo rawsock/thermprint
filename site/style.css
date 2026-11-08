@@ -62,6 +62,9 @@ input[type=range] { accent-color: var(--blue); width: 100%; margin: 16px 0 7px; 
 .dither { margin: 24px 0 25px; gap: 11px; }
 .dither strong { font-size: 12px; font-weight: 500; }
 .dither small { display: block; font-size: 11px; font-weight: 400; color: #77806f; margin-top: 4px; }
+.dither-options { padding: 0 0 23px; }
+.dither-options .control { margin-bottom: 18px; }
+.detail-check { margin-top: 20px; }
 .local-note { font-size: 10px; color: #78836d; border-top: 1px solid #eeefea; padding: 16px 25px; margin: 0; display: flex; gap: 8px; }
 .text-button { border: 0; background: none; color: #737e65; font-size: 11px; padding: 3px 0; }
 .text-button:hover { color: var(--blue); }

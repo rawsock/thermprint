@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
 import jsQR from 'jsqr';
 import { qrCanvas } from '../site/qr.js';
-import { monochrome, calibrateInk, DEFAULT_FEED_SCALE, imageCanvas } from '../site/raster.js';
+import { monochrome, calibrateInk, preparePrint, DEFAULT_FEED_SCALE, imageCanvas } from '../site/raster.js';
 import { drawStroke, canvasPoint, setupDrawing } from '../site/drawing.js';
 import { galleryResults, searchURL, commonsImageURL, searchGraphics, loadGraphic } from '../site/gallery.js';
 
@@ -19,7 +19,8 @@ test('QR codes decode as the original link and Unicode text before and after fee
     const canvas = qrCanvas(value, 320);
     const ink = toInk(canvas);
     assert.equal(jsQR(rgba(ink), 384, canvas.height)?.data, value);
-    const corrected = calibrateInk(ink, canvas.height);
+    const corrected = preparePrint(canvas.getContext('2d').getImageData(0, 0, 384, canvas.height).data, canvas.height, { dither: false, threshold: 128 });
+    assert.deepEqual(corrected.artworkInk, ink);
     assert.equal(jsQR(rgba(corrected.ink), 384, corrected.height)?.data, value);
     assert.ok(ink.slice(0, 384 * 20).every(pixel => pixel === 0), 'quiet zone is white');
   }

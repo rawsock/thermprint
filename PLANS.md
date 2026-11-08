@@ -8,7 +8,13 @@ The TEDi SWS-PT1 supports custom BLE printing through FFE6/FFE1/FFE2. On 2026-11
 
 The browser port preserves 100-byte application packets and conservative 40 ms pacing. It honors printer holds and one-based retry requests, and requires the matching completion acknowledgement. Automatic replay after disconnect is excluded because already printed paper cannot be recalled. The user subsequently confirmed that browser printing works.
 
-Paper-feed compensation defaults to 29 / 25.5 (about 113.7%): the user measured a circular image as 29 mm across and 25.5 mm along the paper. Expand the monochrome rows with nearest-neighbor sampling after rendering all input types. Keep the preview and PNG at intended proportions; the hardware raster alone includes compensation. Store the adjustable correction locally and enforce the 1536-row limit after correction.
+Paper-feed compensation defaults to 29 / 25.5 (about 113.7%): the user measured a circular image as 29 mm across and 25.5 mm along the paper. Resize continuous gray tones before dithering so the final print grid has no duplicated dot rows; preserve nearest-neighbor binary correction for non-dithered text and QR codes. Keep the preview and PNG at intended proportions, with their own quantization at that resolution. Store the adjustable correction locally and enforce the 1536-row limit after correction.
+
+## Image quality
+
+Use serpentine Stucki diffusion for photos, with small deterministic threshold variation to break repeating patterns. Offer Atkinson as a crisper illustration option. Adjust input tones for ink balance, with contrast that preserves white/black endpoints and optional mild sharpening. Moving the diffusion threshold alone conserved nearly the same ink coverage and made the old slider ineffective.
+
+Against the pre-change raster code in commit 3faba7b, a 384 × 256 constant-gray patch had 63 repeated adjacent rows after feed correction; the new print raster had zero. At ink settings 80/160/220, coverage changed from approximately 49.7/49.9/50.0% to 29.0/49.8/68.7% with neutral contrast. Regression tests cover tone density, clean white feed, corrected-size limits, and QR decoding. Sample photograph and gradient comparisons were visually inspected in software; physical print quality still needs confirmation.
 
 ## Delivery
 

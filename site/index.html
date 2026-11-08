@@ -86,7 +86,14 @@ Enjoy the small things.</textarea>
           <div class="adjustment-heading"><label for="threshold" class="label">Ink balance</label><output id="threshold-value" for="threshold">160</output></div>
           <input id="threshold" type="range" min="50" max="230" value="160">
           <div class="range-labels"><span>Lighter</span><span>Darker</span></div>
-          <label class="check dither"><input id="dither" type="checkbox"><span><strong>Photo dithering</strong><small>Use tiny dots to bring out shades and detail.</small></span></label>
+          <label class="check dither"><input id="dither" type="checkbox"><span><strong>Photo dithering</strong><small>Smoother shades with fine, evenly spread dots.</small></span></label>
+          <div id="dither-options" class="dither-options" hidden>
+            <label class="control">Dither style<select id="dither-method"><option value="stucki">Photos · smooth tones</option><option value="atkinson">Illustrations · crisp contrast</option></select></label>
+            <div class="adjustment-heading"><label for="contrast" class="label">Contrast</label><output id="contrast-value" for="contrast">110%</output></div>
+            <input id="contrast" type="range" min="60" max="160" value="110" step="5">
+            <div class="range-labels"><span>Softer</span><span>Stronger</span></div>
+            <label class="check detail-check"><input id="sharpen" type="checkbox" checked><span>Enhance fine detail</span></label>
+          </div>
           <details class="calibration"><summary>Paper-feed calibration</summary><label for="feed-scale" class="label">Vertical correction <output id="feed-scale-value">113.7%</output></label><input id="feed-scale" type="range" min="80" max="140" step="0.1" value="113.7"><p class="tab-hint">Corrects the printer’s vertical squeeze so circles stay round. Applies to every tab. Use 100% for no correction.</p><button id="feed-reset" class="text-button" type="button">Reset to measured correction</button></details>
         </fieldset>
         <p class="local-note"><span aria-hidden="true">↳</span> Prints stay local. Graphics searches go to Wikimedia.</p>

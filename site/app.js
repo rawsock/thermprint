@@ -1,5 +1,5 @@
 import { Printer, WIDTH } from './protocol.js';
-import { textCanvas, imageCanvas, monochrome, drawInk, calibrateInk, DEFAULT_FEED_SCALE } from './raster.js';
+import { textCanvas, imageCanvas, drawInk, preparePrint, DEFAULT_FEED_SCALE } from './raster.js';
 import { qrCanvas } from './qr.js';
 import { setupDrawing } from './drawing.js';
 import { setupGallery } from './gallery-ui.js';
@@ -69,6 +69,8 @@ function render() {
   $('feed-scale-value').value = `${(feedScale * 100).toFixed(1)}%`;
   $('dither').disabled = mode === 'qr';
   $('threshold').disabled = mode === 'qr';
+  $('dither-options').hidden = mode === 'qr' || !$('dither').checked;
+  $('contrast-value').value = `${$('contrast').value}%`;
   try {
     if (!empty) {
       const source = mode === 'text' ? textCanvas($('text').value, {
@@ -76,10 +78,13 @@ function render() {
       }) : mode === 'qr' ? qrCanvas($('qr-text').value, Number($('qr-size').value)) :
         imageCanvas(mode === 'image' ? loadedImage : mode === 'graphics' ? graphic : $('draw-canvas'), feedScale);
       const rgba = source.getContext('2d').getImageData(0, 0, WIDTH, source.height).data;
-      const ink = monochrome(rgba, WIDTH, source.height, { threshold: mode === 'qr' ? 128 : Number($('threshold').value), dither: mode !== 'qr' && $('dither').checked });
-      if (!ink.some(Boolean)) throw new Error(mode === 'draw' ? 'Draw something on the canvas to get started.' : 'This preview is blank. Add darker content or increase the ink balance.');
-      drawInk($('preview-canvas'), ink, source.height);
-      preview = { ...calibrateInk(ink, source.height, feedScale), artworkHeight: source.height };
+      const result = preparePrint(rgba, source.height, {
+        threshold: mode === 'qr' ? 128 : Number($('threshold').value), dither: mode !== 'qr' && $('dither').checked,
+        method: $('dither-method').value, contrast: Number($('contrast').value), sharpen: $('sharpen').checked, feedScale,
+      });
+      if (!result.ink.some(Boolean)) throw new Error(mode === 'draw' ? 'Draw something on the canvas to get started.' : 'This preview is blank. Add darker content or increase the ink balance.');
+      drawInk($('preview-canvas'), result.artworkInk, source.height);
+      preview = result;
     }
   } catch (error) {
     $('paper').hidden = true;
@@ -195,7 +200,7 @@ for (const name of modes) {
     $(`${next}-tab`).focus();
   });
 }
-for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'qr-text', 'qr-size']) $(id).addEventListener('input', render);
+for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size']) $(id).addEventListener('input', render);
 function saveCalibration() {
   try { localStorage.setItem('thermprint-feed-scale', String(feedScale)); } catch { /* Optional persistence. */ }
   render();
