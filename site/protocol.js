@@ -252,11 +252,11 @@ export class Printer {
     }
   }
 
-  async send(frame) {
+  async send(frame, response = false) {
     this.inbox.check();
     if (!this.device?.gatt.connected) throw new Error('Printer is disconnected.');
     // Preserve the 100-byte application packet; splitting it changes the protocol.
-    await bounded(this.writer.writeValueWithoutResponse(frame));
+    await bounded(response ? this.writer.writeValueWithResponse(frame) : this.writer.writeValueWithoutResponse(frame));
     this.inbox.check();
   }
 
@@ -271,6 +271,9 @@ export class Printer {
       if (nativeGray) {
         const capability = await grayscaleCommand(frame => this.send(frame), this.inbox, 0);
         if (height > capability.rows) throw new Error('Invalid grayscale image size.');
+        if (!this.writer.properties.write || !this.writer.writeValueWithResponse) {
+          throw new Error('This firmware does not support native grayscale. Choose Black and white.');
+        }
         // Use the density on which the shared DC dose profile is based.
         await this.send(Uint8Array.of(0x5a, 0x0c, 3, ...Array(9).fill(0)));
         const density = await this.inbox.opcode(0x0c);
@@ -280,7 +283,11 @@ export class Printer {
         // per row cannot retain binary's 40-ms delay or grow it on every hold.
         callbacks = { delay: 0, ...callbacks, adaptiveDelay: false, timeout: height * 300 + 20000 };
       }
-      await transfer(frame => this.send(frame), this.inbox, packets, callbacks);
+      // OS write-without-response completion can mean queued, not delivered.
+      // Acknowledging each eighth raster bounds the backlog so holds arrive
+      // before hundreds of stale packets accumulate. No fixed sleep is needed.
+      let queued = 0;
+      await transfer(frame => this.send(frame, nativeGray && frame[0] === 0x55 && ++queued % 8 === 0), this.inbox, packets, callbacks);
       if (nativeGray) {
         const deadline = Date.now() + height * 300 + 20000;
         while (true) {

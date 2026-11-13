@@ -78,13 +78,13 @@ test('paper, heat, low voltage, malformed status and retry failures stop transfe
   assert.deepEqual(parseStatus(bytes('5a025600000000030f270040')), { battery: 86, error: null });
 });
 
-function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0, grayFeedChecks = 0 } = {}) {
+function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0, grayFeedChecks = 0, rasterQueueLimit = Infinity } = {}) {
   const device = new EventTarget();
   device.name = 'SWS-PT1';
   device.id = 'saved-printer';
   const reader = new EventTarget();
-  const sent = [];
-  let notifications = false, count = 0;
+  const sent = [], acknowledged = [];
+  let notifications = false, count = 0, pendingRaster = 0;
   const notify = frame => {
     const value = typeof frame === 'string' ? bytes(frame) : frame;
     reader.value = new DataView(value.buffer);
@@ -92,11 +92,17 @@ function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0
   };
   reader.startNotifications = async () => { notifications = true; };
   const writer = {
-    properties: { writeWithoutResponse: true },
+    properties: { writeWithoutResponse: true, write: true },
+    async writeValueWithResponse(frame) {
+      acknowledged.push(hex(frame));
+      await this.writeValueWithoutResponse(frame);
+      pendingRaster = 0;
+    },
     async writeValueWithoutResponse(frame) {
       assert.ok(notifications, 'Subscribe before sending any commands');
       sent.push(hex(frame));
       if (frame[0] === 0x55) {
+        if (++pendingRaster > rasterQueueLimit) throw new Error('OS transmit queue overflow');
         if (disconnectOnRaster) { device.gatt.disconnect(); return; }
         if (((frame[1] << 8) | frame[2]) === count - 1) notify(Uint8Array.of(0x5a, 6, count >> 8, count & 255));
       } else if (frame[1] === 1) notify('5a010003c0000000078e0100');
@@ -134,7 +140,7 @@ function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0
     },
   };
   return {
-    sent, device, notify,
+    sent, acknowledged, device, notify,
     bluetooth: { async requestDevice(options) {
       assert.deepEqual(options, { filters: [{ namePrefix: 'SWS-PT1' }], optionalServices: [SERVICE] });
       return device;
@@ -175,9 +181,11 @@ test('native grayscale GATT job negotiates, arms exact rows and checks final com
   await printer.print(Uint8Array.from({length:384*3},(_,i)=>i%31),3,{...options,nativeGray:true,levels:31});
   assert.ok(mock.sent.includes('5a0e01021e02000300000000'));
   assert.equal(mock.sent.filter(frame=>frame.startsWith('55')).length,13);
+  assert.deepEqual(mock.acknowledged,[mock.sent.filter(frame=>frame.startsWith('55'))[7]]);
   assert.equal(mock.sent.at(-1),'5a0e03000000000000000000');
   assert.equal(mock.sent.filter(frame=>frame.startsWith('5a0e03')).length,2,'Wait until final feed finishes');
   await printer.print(new Uint8Array(384*4),4,options);
+  assert.equal(mock.acknowledged.length,1,'Binary pacing remains unchanged');
   printer.disconnect();
 });
 
@@ -187,6 +195,15 @@ test('capability and arm replies must match format, row count and flags', async 
     const inbox=new Inbox(), bad=response.slice(); bad[offset]^=1;
     await assert.rejects(grayscaleCommand(async()=>inbox.push(bad),inbox,1,3));
   }
+});
+
+test('native transfer drains a bounded OS transmit queue without a pacing sleep', async () => {
+  const mock=mockBluetooth({gray:true,rasterQueueLimit:16}), printer=new Printer();
+  await printer.connect(mock.bluetooth);
+  await printer.print(new Uint8Array(384*80),80,{...options,nativeGray:true});
+  assert.equal(mock.sent.filter(frame=>frame.startsWith('55')).length,321);
+  assert.ok(mock.acknowledged.length > 1);
+  printer.disconnect();
 });
 
 test('more than ten legitimate buffer holds do not fail a long transfer', async () => {
