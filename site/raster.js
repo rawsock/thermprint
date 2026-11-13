@@ -104,8 +104,8 @@ export function monochrome(rgba, width, height, options = {}) {
   return quantize(grayscale(rgba, width, height, options), width, height, options);
 }
 
-export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, nativeGray = false, ...options } = {}) {
-  const levels = nativeGray ? 4 : 2;
+export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, nativeGray = false, levels = 256, ...options } = {}) {
+  levels = nativeGray ? levels : 2;
   options = { ...options, levels };
   const rows = calibratedRows(height, feedScale) * (nativeGray ? 2 : 1);
   const metadata = { levels, nativeGray, artworkHeight: height };

@@ -49,14 +49,14 @@ test('diffusion supports arbitrary tone counts with bounded deterministic output
 test('grayscale sampling doubles rows without stretching preview or white margins', () => {
   const pixels = grayPixels(384,20,255);
   for (let y=4;y<16;y++) for (let x=0;x<384;x++) pixels.fill(x%256,(y*384+x)*4,(y*384+x)*4+3);
-  for (const feedScale of [0.8,1,1.4]) for (const dither of [false,true]) {
-    const job = preparePrint(pixels,20,{nativeGray:true,feedScale,dither,contrast:100,sharpen:false});
+  for (const levels of [3,4,31,256]) for (const feedScale of [0.8,1,1.4]) for (const dither of [false,true]) {
+    const job = preparePrint(pixels,20,{nativeGray:true,levels,feedScale,dither,contrast:100,sharpen:false});
     assert.equal(job.height,Math.round(20*feedScale)*2);
     assert.equal(job.artworkHeight,20);
     assert.equal(job.artworkInk.length,384*20);
-    assert.equal(job.levels,4);
+    assert.equal(job.levels,levels);
     assert.equal(job.nativeGray,true);
-    assert.deepEqual([...new Set(job.ink)].sort(),[0,1,2,3]);
+    assert.deepEqual([...new Set(job.ink)].sort((a,b)=>a-b),Array.from({length:levels},(_,i)=>i));
     assert.ok(job.ink.slice(0,384*2).every(tone => tone===0));
     assert.ok(job.ink.slice(-384*2).every(tone => tone===0));
   }

@@ -31,34 +31,36 @@ export function rasterPackets(ink, height) {
   return packets;
 }
 
-export function grayscalePackets(ink, height) {
+export function grayscalePackets(ink, height, levels = 256) {
   if (!Number.isInteger(height) || height < 1 || height > 2 * MAX_HEIGHT || ink.length !== WIDTH * height) {
     throw new Error('Invalid grayscale image size.');
   }
-  // One row per packet: low-bit plane, high-bit plane, both MSB-first.
-  // The legacy consumer completes before rendering its final packet.
-  const packets = Array.from({ length: height + 1 }, (_, index) => {
+  if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
+  // Eight dose bitplanes, two per packet. The final packet is a completion guard.
+  const packets = Array.from({ length: height * 4 + 1 }, (_, index) => {
     const frame = new Uint8Array(100);
     frame.set([0x55, index >> 8, index & 255]);
     return frame;
   });
   for (let i = 0; i < ink.length; i++) {
-    const tone = ink[i], x = i % WIDTH, row = Math.floor(i / WIDTH);
-    if (!Number.isInteger(tone) || tone < 0 || tone > 3) throw new Error('Invalid grayscale tone.');
-    for (let bit = 0; bit < 2; bit++) {
-      if (tone & (1 << bit)) packets[row][3 + bit * 48 + (x >> 3)] |= 0x80 >> (x % 8);
+    const tone = ink[i];
+    if (!Number.isInteger(tone) || tone < 0 || tone >= levels) throw new Error('Invalid grayscale tone.');
+    const dose = Math.round(tone * 255 / (levels - 1)), x = i % WIDTH, row = Math.floor(i / WIDTH);
+    for (let bit = 0; bit < 8; bit++) {
+      if (dose & (1 << bit)) packets[row*4+(bit>>1)][3+(bit%2)*48+(x>>3)] |= 0x80 >> (x%8);
     }
   }
   return packets;
 }
 
-export async function grayscaleCommand(send, inbox, operation, height = 0) {
+export async function grayscaleCommand(send, inbox, operation, height = 0, levels = 256) {
+  if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
   const request = new Uint8Array(12);
   request.set([0x5a, 0x0e, operation]);
-  if (operation === 1) request.set([1, 4, 2, height >> 8, height & 255], 3);
+  if (operation === 1) request.set([2, levels - 1, 2, height >> 8, height & 255], 3);
   await send(request);
   const response = await inbox.opcode(0x0e);
-  if (response.length !== 12 || response[2] !== 1 || response[4] !== 0x47 || response[5] !== 0x52 || response[6] !== 4 || response[7] !== 2) {
+  if (response.length !== 12 || response[2] !== 2 || response[4] !== 0x47 || response[5] !== 0x52 || response[6] !== 255 || response[7] !== 2) {
     throw new Error('This firmware does not support native grayscale. Choose Black and white.');
   }
   if (response[3]) throw new Error('Grayscale printing was refused or interrupted. Check the printer and reconnect.');
@@ -121,7 +123,7 @@ export async function authenticate(send, inbox) {
 
 export async function transfer(send, inbox, packets, {
   onProgress = () => {}, onMessage = () => {}, delay = 40,
-  timeout = packets.length * 300 + 20000, settle = 100,
+  timeout = packets.length * 300 + 20000, settle = 100, adaptiveDelay = true,
 } = {}) {
   let index = 0, held = false, retries = 0;
   const deadline = Date.now() + timeout;
@@ -139,7 +141,7 @@ export async function transfer(send, inbox, packets, {
       switch (frame[1]) {
         case 0x08:
           held = true;
-          delay = Math.min(100, delay * 1.5);
+          if (adaptiveDelay) delay = Math.min(100, delay * 1.5);
           onMessage('Printer paused. Waiting for it to resume…');
           break;
         case 0x05: {
@@ -169,7 +171,7 @@ export async function transfer(send, inbox, packets, {
     if (held || index === packets.length) { await sleep(20); continue; }
     await send(packets[index]);
     onProgress(++index, packets.length);
-    await sleep(delay);
+    if (delay) await sleep(delay);
   }
   await send(marker(packets.length, true));
   // The transfer acknowledgement is authoritative; a footer echo is optional.
@@ -258,11 +260,11 @@ export class Printer {
     this.inbox.check();
   }
 
-  async print(ink, height, { nativeGray = false, ...callbacks } = {}) {
+  async print(ink, height, { nativeGray = false, levels = 256, ...callbacks } = {}) {
     if (this.busy) throw new Error('A print is already in progress.');
     if (!this.ready) throw new Error('Connect the printer first.');
     if (this.status?.error) throw new Error(this.status.error);
-    const packets = nativeGray ? grayscalePackets(ink, height) : rasterPackets(ink, height);
+    const packets = nativeGray ? grayscalePackets(ink, height, levels) : rasterPackets(ink, height);
     this.inbox.frames.length = 0;
     this.busy = true;
     try {
@@ -273,12 +275,14 @@ export class Printer {
         await this.send(Uint8Array.of(0x5a, 0x0c, 3, ...Array(9).fill(0)));
         const density = await this.inbox.opcode(0x0c);
         if (density[2] !== 3) throw new Error('The printer did not accept the grayscale density.');
-        await grayscaleCommand(frame => this.send(frame), this.inbox, 1, height);
-        callbacks = { ...callbacks, timeout: height * 1800 + 20000 };
+        await grayscaleCommand(frame => this.send(frame), this.inbox, 1, height, levels);
+        // The ring's hold/retry protocol provides backpressure. Four packets
+        // per row cannot retain binary's 40-ms delay or grow it on every hold.
+        callbacks = { delay: 0, ...callbacks, adaptiveDelay: false, timeout: height * 300 + 20000 };
       }
       await transfer(frame => this.send(frame), this.inbox, packets, callbacks);
       if (nativeGray) {
-        const deadline = Date.now() + height * 1800 + 20000;
+        const deadline = Date.now() + height * 300 + 20000;
         while (true) {
           const status = await grayscaleCommand(frame => this.send(frame), this.inbox, 3);
           if (!status.flags) {

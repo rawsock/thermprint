@@ -76,6 +76,7 @@ function render() {
   $('feed-scale-value').value = `${formatNumber(feedScale * 100)}%`;
   $('dither').disabled = mode === 'qr';
   $('print-tones').disabled = mode === 'qr';
+  $('tone-count').disabled = mode === 'qr' || $('print-tones').value !== 'gray';
   $('threshold').disabled = mode === 'qr';
   $('dither-options').disabled = mode === 'qr' || !$('dither').checked;
   $('contrast-value').value = `${$('contrast').value}%`;
@@ -91,7 +92,7 @@ function render() {
           { ...spacing, imageScale: Number($('image-scale').value) / 100 });
       const rgba = source.getContext('2d').getImageData(0, 0, WIDTH, source.height).data;
       const result = preparePrint(rgba, source.height, {
-        nativeGray: mode !== 'qr' && $('print-tones').value === 'gray4',
+        nativeGray: mode !== 'qr' && $('print-tones').value === 'gray', levels: Number($('tone-count').value),
         threshold: mode === 'qr' ? 128 : Number($('threshold').value), dither: mode !== 'qr' && $('dither').checked,
         method: $('dither-method').value, contrast: Number($('contrast').value), sharpen: $('sharpen').checked, feedScale,
       });
@@ -181,7 +182,7 @@ $('print').addEventListener('click', async () => {
     try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* Optional on browsers that support it. */ }
     if (stopped) throw new Error('Transfer stopped.');
     await printer.print(job.ink, job.height, {
-      nativeGray: job.nativeGray,
+      nativeGray: job.nativeGray, levels: job.levels,
       onProgress: (sent, total) => { $('progress').value = sent / total * 100; },
       onMessage: text => { message(text); log(text); },
     });
@@ -223,7 +224,7 @@ for (const name of modes) {
     $(`${next}-tab`).focus();
   });
 }
-for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'start-space', 'end-space', 'image-scale', 'preview-style', 'print-tones']) $(id).addEventListener('input', render);
+for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'start-space', 'end-space', 'image-scale', 'preview-style', 'print-tones', 'tone-count']) $(id).addEventListener('input', render);
 function saveCalibration() {
   try { localStorage.setItem('thermprint-feed-scale', String(feedScale)); } catch { /* Optional persistence. */ }
   render();

@@ -106,7 +106,8 @@ Enjoy the small things.</textarea>
           <legend class="sr-only">Print adjustments</legend>
           <label class="control preview-style-control">Preview<select id="preview-style"><option value="paper" selected>Paper · softer</option><option value="dots">Exact dots</option></select></label>
           <p class="tab-hint preview-note">Screen appearance only. Printing and PNG keep the exact dots.</p>
-          <label class="control">Print tones<select id="print-tones"><option value="binary">Black and white</option><option value="gray4">Native grayscale · 4 tones</option></select></label>
+          <label class="control">Print tones<select id="print-tones"><option value="binary">Black and white</option><option value="gray">Native grayscale</option></select></label>
+          <label class="control">Tone count<input id="tone-count" type="number" min="2" max="256" step="1" value="256" disabled></label>
           <small>Native grayscale needs compatible firmware and prints more slowly. Its shades are approximate.</small>
           <fieldset id="image-scale-control" class="setting-group" disabled>
             <legend class="sr-only">Image size</legend>
