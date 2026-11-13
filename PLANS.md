@@ -16,6 +16,8 @@ Keep print adjustments adjacent to the preview, with independent scrolling and f
 
 ## Image quality
 
+Native grayscale is an optional four-tone mode for compatible firmware; binary remains the default and QR codes always use it. Negotiate support before raster transfer, preserve a terminal guard packet, and wait for rendered-row and final-feed completion. Fine row pitch doubles encoded height while preserving preview and paper proportions. Stucki and Atkinson error diffusion support any integer 2?256 tone count, with the initial wire modes exposing 2 and 4. The common four-tone curve remains approximate; actual-image acceptance is pending.
+
 Use serpentine Stucki diffusion for photos, with small deterministic threshold variation to break repeating patterns. Offer Atkinson as a crisper illustration option. Adjust input tones for ink balance, with contrast that preserves white/black endpoints and optional mild sharpening. Moving the diffusion threshold alone conserved nearly the same ink coverage and made the old slider ineffective.
 
 Default to a softened paper preview, using mild optical blending and dark-gray ink for screen display only. Retain an exact-dot preview option and binary PNG export. This addresses the user's report that screen dots looked harsher than paper without modifying the working print raster.

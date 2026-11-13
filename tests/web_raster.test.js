@@ -30,6 +30,39 @@ test('word wrap preserves blank lines and splits oversized Unicode words', () =>
 const grayPixels = (width, height, value) => Uint8ClampedArray.from({ length: width * height * 4 }, (_, i) => i % 4 === 3 ? 255 : value);
 const coverage = ink => ink.reduce((sum, value) => sum + value, 0) / ink.length;
 
+test('diffusion supports arbitrary tone counts with bounded deterministic output and preserved mean', () => {
+  for (const levels of [2,3,4,5,8,16,31,256]) for (const method of ['stucki','atkinson']) {
+    const options = { levels, method, contrast: 100, sharpen: false };
+    for (const value of [0,32,96,128,192,224,255]) {
+      const pixels = grayPixels(64,64,value), ink = monochrome(pixels,64,64,options);
+      assert.ok(ink.every(tone => tone >= 0 && tone < levels));
+      assert.deepEqual(ink,monochrome(pixels,64,64,options));
+      if (value === 0 || value === 255) assert.ok(ink.every(tone => tone === (value ? 0 : levels-1)));
+      if (method === 'stucki') assert.ok(Math.abs(coverage(ink)/(levels-1)-(1-value/255)) < 0.025);
+    }
+  }
+  for (const levels of [0,1,2.5,257,NaN]) {
+    assert.throws(() => monochrome(grayPixels(1,1,128),1,1,{levels}),/Tone count/);
+  }
+});
+
+test('grayscale sampling doubles rows without stretching preview or white margins', () => {
+  const pixels = grayPixels(384,20,255);
+  for (let y=4;y<16;y++) for (let x=0;x<384;x++) pixels.fill(x%256,(y*384+x)*4,(y*384+x)*4+3);
+  for (const feedScale of [0.8,1,1.4]) for (const dither of [false,true]) {
+    const job = preparePrint(pixels,20,{nativeGray:true,feedScale,dither,contrast:100,sharpen:false});
+    assert.equal(job.height,Math.round(20*feedScale)*2);
+    assert.equal(job.artworkHeight,20);
+    assert.equal(job.artworkInk.length,384*20);
+    assert.equal(job.levels,4);
+    assert.equal(job.nativeGray,true);
+    assert.deepEqual([...new Set(job.ink)].sort(),[0,1,2,3]);
+    assert.ok(job.ink.slice(0,384*2).every(tone => tone===0));
+    assert.ok(job.ink.slice(-384*2).every(tone => tone===0));
+  }
+  assert.throws(() => preparePrint(grayPixels(384,1536,128),1536,{nativeGray:true,feedScale:1.4}),/too long/);
+});
+
 test('photo dithering preserves the average tone through highlights, midtones and shadows', () => {
   for (const tone of [32, 64, 96, 128, 160, 192, 224]) {
     const ink = monochrome(grayPixels(96, 96, tone), 96, 96, { threshold: 160, contrast: 100, sharpen: false });

@@ -11,6 +11,7 @@ const $ = id => document.getElementById(id);
 const supported = Boolean(navigator.bluetooth && window.isSecureContext);
 let mode = 'text', loadedImage = null, imageVersion = 0, preview = null;
 let graphic = null, graphicLoading = false;
+let artworkTones = 'binary';
 const modes = ['text', 'image', 'qr', 'graphics', 'draw'];
 let feedScale = DEFAULT_FEED_SCALE;
 try {
@@ -74,6 +75,7 @@ function render() {
   $('threshold-value').value = $('threshold').value;
   $('feed-scale-value').value = `${formatNumber(feedScale * 100)}%`;
   $('dither').disabled = mode === 'qr';
+  $('print-tones').disabled = mode === 'qr';
   $('threshold').disabled = mode === 'qr';
   $('dither-options').disabled = mode === 'qr' || !$('dither').checked;
   $('contrast-value').value = `${$('contrast').value}%`;
@@ -89,13 +91,14 @@ function render() {
           { ...spacing, imageScale: Number($('image-scale').value) / 100 });
       const rgba = source.getContext('2d').getImageData(0, 0, WIDTH, source.height).data;
       const result = preparePrint(rgba, source.height, {
+        nativeGray: mode !== 'qr' && $('print-tones').value === 'gray4',
         threshold: mode === 'qr' ? 128 : Number($('threshold').value), dither: mode !== 'qr' && $('dither').checked,
         method: $('dither-method').value, contrast: Number($('contrast').value), sharpen: $('sharpen').checked, feedScale,
       });
       if (!result.ink.some(Boolean)) throw new Error(mode === 'draw' ? 'Draw something on the canvas to get started.' : 'This preview is blank. Add darker content or increase the ink balance.');
       const soft = $('preview-style').value === 'paper';
       $('preview-canvas').classList.toggle('exact-dots', !soft);
-      drawPreview($('preview-canvas'), result.artworkInk, source.height, soft);
+      drawPreview($('preview-canvas'), result.artworkInk, source.height, soft, result.levels);
       preview = result;
     }
   } catch (error) {
@@ -109,7 +112,9 @@ function render() {
 }
 
 function selectMode(next) {
+  if (mode !== 'qr') artworkTones = $('print-tones').value;
   mode = next;
+  $('print-tones').value = mode === 'qr' ? 'binary' : artworkTones;
   for (const name of modes) {
     $(`${name}-tab`).setAttribute('aria-selected', String(name === mode));
     $(`${name}-tab`).tabIndex = name === mode ? 0 : -1;
@@ -176,6 +181,7 @@ $('print').addEventListener('click', async () => {
     try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* Optional on browsers that support it. */ }
     if (stopped) throw new Error('Transfer stopped.');
     await printer.print(job.ink, job.height, {
+      nativeGray: job.nativeGray,
       onProgress: (sent, total) => { $('progress').value = sent / total * 100; },
       onMessage: text => { message(text); log(text); },
     });
@@ -195,7 +201,7 @@ $('stop').addEventListener('click', () => { stopped = true; printer.disconnect()
 $('download').addEventListener('click', () => {
   if (!preview) return;
   const artwork = document.createElement('canvas');
-  drawInk(artwork, preview.artworkInk, preview.artworkHeight);
+  drawInk(artwork, preview.artworkInk, preview.artworkHeight, preview.levels);
   artwork.toBlob(blob => {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
@@ -217,7 +223,7 @@ for (const name of modes) {
     $(`${next}-tab`).focus();
   });
 }
-for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'start-space', 'end-space', 'image-scale', 'preview-style']) $(id).addEventListener('input', render);
+for (const id of ['text', 'font-size', 'alignment', 'bold', 'threshold', 'dither', 'dither-method', 'contrast', 'sharpen', 'qr-text', 'qr-size', 'start-space', 'end-space', 'image-scale', 'preview-style', 'print-tones']) $(id).addEventListener('input', render);
 function saveCalibration() {
   try { localStorage.setItem('thermprint-feed-scale', String(feedScale)); } catch { /* Optional persistence. */ }
   render();

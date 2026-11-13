@@ -24,7 +24,7 @@ export function calibrateInk(ink, height, scale = DEFAULT_FEED_SCALE) {
   return { ink: corrected, height: rows };
 }
 
-function grayscale(rgba, width, height, { threshold = 160, dither = true, contrast = 110, sharpen = true } = {}) {
+function grayscale(rgba, width, height, { threshold = 160, dither = true, contrast = 110, sharpen = true, levels = 2 } = {}) {
   if (rgba.length !== width * height * 4) throw new Error('Invalid image pixels.');
   const gray = new Float32Array(width * height);
   // Change the input tones, not the diffusion threshold: diffusion otherwise
@@ -42,7 +42,7 @@ function grayscale(rgba, width, height, { threshold = 160, dither = true, contra
     const alpha = rgba[i * 4 + 3] / 255;
     const value = clamp((0.2126 * rgba[i * 4] + 0.7152 * rgba[i * 4 + 1] + 0.0722 * rgba[i * 4 + 2]) * alpha + 255 * (1 - alpha));
     const lower = Math.floor(value);
-    gray[i] = dither ? tones[lower] + (value - lower) * (tones[Math.min(255, lower + 1)] - tones[lower]) : value;
+    gray[i] = dither || levels > 2 ? tones[lower] + (value - lower) * (tones[Math.min(255, lower + 1)] - tones[lower]) : value;
   }
   if (!dither || !sharpen) return gray;
   const horizontal = new Float32Array(gray.length);
@@ -67,10 +67,13 @@ const DIFFUSION = {
   atkinson: { divisor: 8, taps: [[1,0,1], [2,0,1], [-1,1,1], [0,1,1], [1,1,1], [0,2,1]] },
 };
 
-function quantize(gray, width, height, { threshold = 160, dither = true, method = 'stucki' } = {}) {
+function quantize(gray, width, height, { threshold = 160, dither = true, method = 'stucki', levels = 2 } = {}) {
+  if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
+  const last = levels - 1, step = 255 / last;
+  const nearest = value => Math.max(0, Math.min(last, Math.round((255 - value) / step)));
   const ink = new Uint8Array(gray.length);
   if (!dither) {
-    for (let i = 0; i < gray.length; i++) ink[i] = gray[i] < threshold ? 1 : 0;
+    for (let i = 0; i < gray.length; i++) ink[i] = levels === 2 ? Number(gray[i] < threshold) : nearest(gray[i]);
     return ink;
   }
   const kernel = DIFFUSION[method];
@@ -85,9 +88,9 @@ function quantize(gray, width, height, { threshold = 160, dither = true, method 
       // Small, repeatable threshold variation breaks regular worms in flat
       // photo tones. Error diffusion still conserves the average ink density.
       noise = (Math.imul(noise, 1664525) + 1013904223) >>> 0;
-      const jitter = method === 'stucki' ? (noise / 4294967296 - 0.5) * 32 : 0;
-      ink[i] = work[i] < 127.5 + jitter ? 1 : 0;
-      const error = (work[i] - (ink[i] ? 0 : 255)) / kernel.divisor;
+      const jitter = method === 'stucki' ? (noise / 4294967296 - 0.5) * 32 / last : 0;
+      ink[i] = levels === 2 ? Number(work[i] < 127.5 + jitter) : nearest(work[i] - jitter);
+      const error = (work[i] - (255 - ink[i] * step)) / kernel.divisor;
       for (const [dx, dy, weight] of kernel.taps) {
         const nx = x + dx * direction, ny = y + dy;
         if (nx >= 0 && nx < width && ny < height) work[ny * width + nx] += error * weight;
@@ -101,12 +104,15 @@ export function monochrome(rgba, width, height, options = {}) {
   return quantize(grayscale(rgba, width, height, options), width, height, options);
 }
 
-export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, ...options } = {}) {
-  const rows = calibratedRows(height, feedScale);
+export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, nativeGray = false, ...options } = {}) {
+  const levels = nativeGray ? 4 : 2;
+  options = { ...options, levels };
+  const rows = calibratedRows(height, feedScale) * (nativeGray ? 2 : 1);
+  const metadata = { levels, nativeGray, artworkHeight: height };
   const gray = grayscale(rgba, WIDTH, height, options);
   const artworkInk = quantize(gray, WIDTH, height, options);
-  if (options.dither === false) return { ...calibrateInk(artworkInk, height, feedScale), artworkInk, artworkHeight: height };
-  if (rows === height) return { ink: artworkInk, height, artworkInk, artworkHeight: height };
+  if (options.dither === false && !nativeGray) return { ...calibrateInk(artworkInk, height, feedScale), artworkInk, ...metadata };
+  if (rows === height) return { ink: artworkInk, height, artworkInk, ...metadata };
   const resized = new Float32Array(WIDTH * rows);
   for (let y = 0; y < rows; y++) {
     const sourceY = Math.max(0, Math.min(height - 1, (y + 0.5) * height / rows - 0.5));
@@ -115,7 +121,7 @@ export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, ...
   }
   // Resize continuous tones first. Stretching binary dots duplicates complete
   // rows and creates regular dark bands at the paper-feed correction interval.
-  return { ink: quantize(resized, WIDTH, rows, options), height: rows, artworkInk, artworkHeight: height };
+  return { ink: quantize(resized, WIDTH, rows, options), height: rows, artworkInk, ...metadata };
 }
 
 export function wrapText(text, measure, maxWidth) {
@@ -179,20 +185,20 @@ export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE, { startSpace = S
   return canvas;
 }
 
-export function drawInk(canvas, ink, height) {
+export function drawInk(canvas, ink, height, levels = 2) {
   canvas.width = WIDTH;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   const pixels = ctx.createImageData(WIDTH, height);
   for (let i = 0; i < ink.length; i++) {
-    pixels.data.fill(ink[i] ? 0 : 255, i * 4, i * 4 + 3);
+    pixels.data.fill(Math.round(255 * (1 - ink[i] / (levels - 1))), i * 4, i * 4 + 3);
     pixels.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(pixels, 0, 0);
 }
 
-export function drawPreview(canvas, ink, height, soft = true) {
-  if (!soft) { drawInk(canvas, ink, height); return; }
+export function drawPreview(canvas, ink, height, soft = true, levels = 2) {
+  if (!soft) { drawInk(canvas, ink, height, levels); return; }
   canvas.width = WIDTH;
   canvas.height = height;
   const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(WIDTH, height);
@@ -209,7 +215,7 @@ export function drawPreview(canvas, ink, height, soft = true) {
     for (let x = 0; x < WIDTH; x++) {
       const i = y * WIDTH + x;
       const coverage = (horizontal[Math.max(0, y - 1) * WIDTH + x] + 6 * horizontal[i] + horizontal[Math.min(height - 1, y + 1) * WIDTH + x]) / 8;
-      pixels.data.fill(Math.round(255 - 231 * coverage), i * 4, i * 4 + 3);
+      pixels.data.fill(Math.round(255 - 231 * coverage / (levels - 1)), i * 4, i * 4 + 3);
       pixels.data[i * 4 + 3] = 255;
     }
   }

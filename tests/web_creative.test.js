@@ -14,6 +14,20 @@ globalThis.document = { createElement: tag => {
 const toInk = canvas => monochrome(canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { threshold: 128, dither: false });
 const rgba = ink => Uint8ClampedArray.from({ length: ink.length * 4 }, (_, i) => i % 4 === 3 ? 255 : ink[Math.floor(i / 4)] ? 0 : 255);
 
+test('native grayscale preview and PNG retain the selected tone levels and intended geometry', () => {
+  for (const levels of [3,4,8,16,256]) {
+    const ink = Uint8Array.from({length:384*4},(_,i)=>i%levels);
+    const output = createCanvas(1,1), preview = createCanvas(1,1);
+    drawInk(output,ink,4,levels);
+    drawPreview(preview,ink,4,false,levels);
+    const actual = output.getContext('2d').getImageData(0,0,384,4).data;
+    assert.deepEqual(preview.getContext('2d').getImageData(0,0,384,4).data,actual);
+    for (let i=0;i<ink.length;i++) assert.equal(actual[4*i],Math.round(255*(1-ink[i]/(levels-1))));
+    drawPreview(preview,ink,4,true,levels);
+    assert.equal(preview.width,384); assert.equal(preview.height,4);
+  }
+});
+
 test('QR codes decode as the original link and Unicode text before and after feed correction', () => {
   for (const value of ['https://rawsock.github.io/thermprint/', 'Zażółć gęślą jaźń · 你好 · 😀']) {
     const canvas = qrCanvas(value, 320);
