@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nativePalette } from '../site/native-tones.js';
+import { nativePalette, nativeRowPalette, NATIVE_ROW_TONES } from '../site/native-tones.js';
 import { grayscalePackets } from '../site/protocol.js';
 import { preparePrint, drawInk, drawPreview } from '../site/raster.js';
 import { createCanvas } from '@napi-rs/canvas';
@@ -24,8 +24,48 @@ test('every 2..256-tone palette interpolates monotone bounded heat and retains e
       if (i) { assert.ok(doses[i]>=doses[i-1]); assert.ok(coverage[i]>=coverage[i-1]); }
     }
   }
-  assert.deepEqual(nativePalette(4).doses,[0,22,131,255]);
+  assert.deepEqual(nativePalette(4).doses,[0,85,170,255]);
   for (const bad of [0,1,2.5,257,NaN]) assert.throws(()=>nativePalette(bad),/Tone count/);
+});
+
+test('adaptive row palettes retain fractional brackets and the full small palette', () => {
+  assert.deepEqual(nativeRowPalette(new Float32Array(384).fill(127.5),4),[0,1,2,3]);
+  assert.deepEqual(nativeRowPalette(new Float32Array(384).fill(127.5),256),[0,127,128]);
+  assert.deepEqual(nativeRowPalette(new Float32Array(384).fill(255),256),[0]);
+  for (const levels of [12,16,31,128,256]) {
+    const values=Float32Array.from({length:384},(_,x)=>x*255/383);
+    const row=nativeRowPalette(values,levels);
+    assert.equal(row[0],0); assert.equal(row.at(-1),levels-1);
+    assert.ok(row.length<=NATIVE_ROW_TONES+1);
+    assert.equal(new Set(row).size,row.length);
+  }
+});
+
+test('adaptive gradients bound heater loads and preserve tone through diffusion', () => {
+  const height=64;
+  const rgba=Uint8ClampedArray.from({length:384*height*4},(_,i)=>i%4===3?255:Math.round((Math.floor(i/4)%384)*255/383));
+  for (const method of ['stucki','atkinson']) for (const dither of [false,true]) {
+    const job=preparePrint(rgba,height,{nativeGray:true,levels:256,feedScale:1,contrast:100,sharpen:false,method,dither});
+    for (let y=0;y<job.height;y++) {
+      const counts=new Map();
+      for (const tone of job.ink.subarray(y*384,(y+1)*384)) if(tone) counts.set(tone,(counts.get(tone)||0)+1);
+      assert.ok(counts.size<=NATIVE_ROW_TONES);
+      assert.ok([...counts.values()].reduce((n,count)=>n+Math.ceil(count/64),0)<=15);
+      assert.equal(job.ink[y*384],255); assert.equal(job.ink[(y+1)*384-1],0);
+    }
+    if (dither && method==='stucki') for(let x=16;x<368;x+=16) {
+      let sum=0;
+      for(let y=0;y<job.height;y++) for(let dx=0;dx<16;dx++) sum+=job.ink[y*384+x+dx]/255;
+      assert.ok(Math.abs(sum/(job.height*16)-(1-(x+7.5)/383))<.02);
+    }
+  }
+});
+
+test('all256 native codes remain available across rows instead of a fixed ten-shade palette', () => {
+  const rgba=Uint8ClampedArray.from({length:384*256*4},(_,i)=>i%4===3?255:255-Math.floor(i/(384*4)));
+  const job=preparePrint(rgba,256,{nativeGray:true,levels:256,feedScale:1,dither:false,contrast:100,sharpen:false});
+  assert.equal(new Set(job.artworkInk).size,256);
+  for(let y=0;y<256;y++) assert.ok(job.artworkInk.subarray(y*384,(y+1)*384).every(tone=>tone===y));
 });
 
 test('calibrated image preparation, preview, export and wire doses share the same palette', () => {

@@ -78,7 +78,7 @@ test('paper, heat, low voltage, malformed status and retry failures stop transfe
   assert.deepEqual(parseStatus(bytes('5a025600000000030f270040')), { battery: 86, error: null });
 });
 
-function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0, grayFeedChecks = 0, rasterQueueLimit = Infinity } = {}) {
+function mockBluetooth({ disconnectOnRaster = false, gray = false, grayVersion = 3, grayError = 0, grayFeedChecks = 0, grayBatch = 0, rasterQueueLimit = Infinity } = {}) {
   const device = new EventTarget();
   device.name = 'SWS-PT1';
   device.id = 'saved-printer';
@@ -102,9 +102,10 @@ function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0
       assert.ok(notifications, 'Subscribe before sending any commands');
       sent.push(hex(frame));
       if (frame[0] === 0x55) {
-        if (++pendingRaster > rasterQueueLimit) throw new Error('OS transmit queue overflow');
+        pendingRaster += frame.length / 100;
+        if (pendingRaster > rasterQueueLimit) throw new Error('OS transmit queue overflow');
         if (disconnectOnRaster) { device.gatt.disconnect(); return; }
-        if (((frame[1] << 8) | frame[2]) === count - 1) notify(Uint8Array.of(0x5a, 6, count >> 8, count & 255));
+        if (((frame[1] << 8) | frame[2]) + frame.length / 100 === count) notify(Uint8Array.of(0x5a, 6, count >> 8, count & 255));
       } else if (frame[1] === 1) notify('5a010003c0000000078e0100');
       else if (frame[1] === 0x0a) notify('5a0ae1e1e1e1e1e1e1e1e1e1');
       else if (frame[1] === 0x0b) { notify('5a0b01000000000000000000'); notify('5a025600000000030f270040'); }
@@ -114,7 +115,7 @@ function mockBluetooth({ disconnectOnRaster = false, gray = false, grayError = 0
         else {
           const rows = frame[2] === 0 ? 3072 : frame[2] === 1 ? (frame[6]<<8)|frame[7] : (count-1)/4;
           const flags = frame[2]===3 && grayFeedChecks-- > 0 ? 4 : Number(frame[2]===1);
-          notify(Uint8Array.of(0x5a,0x0e,2,grayError,0x47,0x52,255,2,rows>>8,rows&255,flags,0));
+          notify(Uint8Array.of(0x5a,0x0e,grayVersion,grayError,0x47,0x52,255,2,rows>>8,rows&255,flags,grayBatch));
         }
       }
       else if (frame[1] === 4) {
@@ -179,7 +180,7 @@ test('native grayscale GATT job negotiates, arms exact rows and checks final com
   const mock=mockBluetooth({gray:true,grayFeedChecks:1}), printer=new Printer();
   await printer.connect(mock.bluetooth);
   await printer.print(Uint8Array.from({length:384*3},(_,i)=>i%31),3,{...options,nativeGray:true,levels:31});
-  assert.ok(mock.sent.includes('5a0e01021e02000300000000'));
+  assert.ok(mock.sent.includes('5a0e01031e02000300000000'));
   assert.equal(mock.sent.filter(frame=>frame.startsWith('55')).length,13);
   assert.deepEqual(mock.sent.filter(frame=>frame.startsWith('55')),
     grayscalePackets(Uint8Array.from({length:384*3},(_,i)=>i%31),3,31,true).map(hex));
@@ -191,8 +192,16 @@ test('native grayscale GATT job negotiates, arms exact rows and checks final com
   printer.disconnect();
 });
 
+test('continuous grayscale refuses split-dose firmware before arming or sending raster', async () => {
+  const mock=mockBluetooth({gray:true,grayVersion:2}), printer=new Printer();
+  await printer.connect(mock.bluetooth);
+  await assert.rejects(printer.print(new Uint8Array(384),1,{...options,nativeGray:true}),/does not support/);
+  assert.ok(!mock.sent.some(frame=>frame.startsWith('55')||frame.startsWith('5a0e01')));
+  printer.disconnect();
+});
+
 test('capability and arm replies must match format, row count and flags', async () => {
-  const response=bytes('5a0e02004752ff0200030100');
+  const response=bytes('5a0e03004752ff0200030100');
   for(const offset of [2,3,4,5,6,7,9,10]) {
     const inbox=new Inbox(), bad=response.slice(); bad[offset]^=1;
     await assert.rejects(grayscaleCommand(async()=>inbox.push(bad),inbox,1,3));
@@ -219,6 +228,74 @@ test('more than ten legitimate buffer holds do not fail a long transfer', async 
     else { inbox.push(bytes('5a08')); inbox.push(Uint8Array.of(0x5a,5,0,index+1)); }
   },inbox,packets,{...options,timeout:1000});
   assert.equal(index,49);
+});
+
+test('negotiated pairs retain frame contents and drain final odd guard', async () => {
+  for (const batch of [0,1,2,3]) {
+    const mock=mockBluetooth({gray:true,grayBatch:batch,rasterQueueLimit:32}), printer=new Printer();
+    await printer.connect(mock.bluetooth);
+    const ink=Uint8Array.from({length:384*16},(_,i)=>i%256);
+    await printer.print(ink,16,{...options,nativeGray:true});
+    const frames=mock.sent.filter(frame=>frame.startsWith('55'));
+    assert.equal(frames.length,batch===2?33:65);
+    assert.equal(frames.join(''),grayscalePackets(ink,16).map(hex).join(''));
+    assert.deepEqual(mock.acknowledged,frames.filter((_,i)=>batch===2?[15,31,32].includes(i):[31,63,64].includes(i)));
+    printer.disconnect();
+  }
+});
+
+test('paired transfer resumes inside a partial pair and flushes a final pair', async () => {
+  const inbox=new Inbox(), packets=grayscalePackets(new Uint8Array(384*2),2), seen=[], progress=[];
+  let held=false;
+  await transfer(async frame=>{
+    if(frame[0]!==0x55)return;
+    const index=(frame[1]<<8)|frame[2], count=frame.length/100;
+    seen.push([index,count]);
+    assert.equal(hex(frame),packets.slice(index,index+count).map(hex).join(''));
+    if(!held){held=true;inbox.push(bytes('5a08'));inbox.push(bytes('5a050002'));}
+    else if(index+count===packets.length)inbox.push(bytes('5a060009'));
+  },inbox,packets,{...options,batchSize:2,onProgress:done=>progress.push(done)});
+  assert.deepEqual(seen,[[0,2],[1,2],[3,2],[5,2],[7,2]]);
+  assert.deepEqual(progress,[2,3,5,7,9,9]);
+});
+
+test('paired Printer jobs drain the final pair after odd retry positions', async () => {
+  for (const holdAt of [2,80]) {
+    const printer=new Printer(), seen=[];
+    printer.ready=true; printer.inbox=new Inbox();
+    printer.writer={properties:{write:true},writeValueWithResponse(){}};
+    let total=0, held=false, queued=0;
+    printer.send=async(frame,response=false)=>{
+      if(frame[0]===0x55) {
+        const index=(frame[1]<<8)|frame[2], count=frame.length/100;
+        seen.push({index,count,response});
+        queued+=count;
+        assert.ok(queued<=32,'Drain the OS queue within the frame allowance');
+        if(response) queued=0;
+        if(!held && index===holdAt) {
+          held=true;
+          printer.inbox.push(bytes('5a08'));
+          printer.inbox.push(Uint8Array.of(0x5a,5,index>>8,index&255));
+        } else if(index+count===total) printer.inbox.push(Uint8Array.of(0x5a,6,total>>8,total&255));
+      } else if(frame[1]===0x0e) {
+        const operation=frame[2], rows=operation===0?3072:operation===1?(frame[6]<<8)|frame[7]:(total-1)/4;
+        printer.inbox.push(Uint8Array.of(0x5a,0x0e,3,0,0x47,0x52,255,2,rows>>8,rows&255,Number(operation===1),2));
+      } else if(frame[1]===0x0c) printer.inbox.push(frame);
+      else if(frame[1]===4 && !frame[4]) total=(frame[2]<<8)|frame[3];
+    };
+    await printer.print(new Uint8Array(384*20),20,{...options,nativeGray:true});
+    assert.ok(held);
+    assert.deepEqual(seen.at(-1),{index:79,count:2,response:true});
+    assert.equal(queued,0,'No raster may remain queued after the completion acknowledgement');
+  }
+});
+
+test('paired printing stops after disconnect without replay or footer', async () => {
+  const mock=mockBluetooth({gray:true,grayBatch:2,disconnectOnRaster:true}),printer=new Printer();
+  await printer.connect(mock.bluetooth);
+  await assert.rejects(printer.print(new Uint8Array(384*2),2,{...options,nativeGray:true}),/disconnected/);
+  assert.equal(mock.sent.filter(frame=>frame.startsWith('55')).length,1);
+  assert.ok(!mock.sent.includes(hex(marker(9,true))));
 });
 
 test('browser GATT boundary authenticates, reads status, and prints consecutive jobs', async () => {

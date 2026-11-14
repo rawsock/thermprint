@@ -65,7 +65,7 @@ test('grayscale sampling doubles rows without stretching preview or white margin
   assert.throws(() => preparePrint(grayPixels(384,1536,128),1536,{nativeGray:true,feedScale:1.4}),/too long/);
 });
 
-test('calibrated diffusion conserves measured tone, including the minimum-heat gap', () => {
+test('native diffusion conserves requested brightness through highlights and shadows', () => {
   for (const levels of [2,3,4,5,8,31,128,256]) for (const method of ['stucki','atkinson']) {
     const palette = nativePalette(levels);
     for (const value of [0,32,96,128,192,224,248,255]) {
@@ -81,12 +81,12 @@ test('calibrated diffusion conserves measured tone, including the minimum-heat g
       }
     }
   }
-  // No-dither highlights choose paper; diffusion can mix the minimum available heat with paper.
+  // Firmware owns the dose curve; a light requested gray remains a light gray.
   const pixels = grayPixels(96,96,240);
   const settings = { nativeGray:true, levels:256, contrast:100, sharpen:false };
   const palette = nativePalette(256);
-  assert.ok(monochrome(pixels,96,96,{...settings,dither:false}).every(tone => palette.doses[tone] === 0));
-  assert.ok(monochrome(pixels,96,96,settings).some(tone => palette.doses[tone] === 1));
+  assert.ok(monochrome(pixels,96,96,{...settings,dither:false}).every(tone => palette.doses[tone] === 15));
+  assert.ok(monochrome(pixels,96,96,settings).every(tone => palette.doses[tone] === 15));
 });
 
 test('photo dithering preserves the average tone through highlights, midtones and shadows', () => {

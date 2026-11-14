@@ -86,3 +86,64 @@ def test_timeout_does_not_report_a_completed_job():
             await printer.transfer(send, asyncio.Queue(), [bytes(100)], delay=0, timeout=0.2)
         assert printer.print_marker(1, end=True) not in seen
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('held',[True,False])
+def test_long_flow_control_is_not_counted_as_repeated_link_failure(held):
+    async def scenario():
+        queue = asyncio.Queue()
+        packets = printer.raster_packets(Image.new('1',(384,50),1))
+        seen = set()
+        async def send(frame):
+            if frame[:1] == b'\x55':
+                index = int.from_bytes(frame[1:3],'big')
+                if index not in seen:
+                    seen.add(index)
+                    if held: queue.put_nowait(b'\x5a\x08')
+                    queue.put_nowait(b'\x5a\x05'+(index+1).to_bytes(2,'big'))
+                elif index == len(packets)-1:
+                    queue.put_nowait(b'\x5a\x06'+len(packets).to_bytes(2,'big'))
+            elif frame == printer.print_marker(len(packets),end=True): queue.put_nowait(frame)
+        if held:
+            await printer.transfer(send,queue,packets,delay=0,timeout=2)
+            assert len(seen) == 25
+        else:
+            with pytest.raises(RuntimeError,match='Too many retransmission'):
+                await printer.transfer(send,queue,packets,delay=0,timeout=2)
+    asyncio.run(scenario())
+
+
+def test_wrong_completion_count_never_sends_a_job_end_or_replays():
+    async def scenario():
+        queue = asyncio.Queue()
+        packets = printer.raster_packets(Image.new("1", (384, 2), 1))
+        sent = []
+        async def send(frame):
+            sent.append(frame)
+            if frame == packets[0]: queue.put_nowait(bytes.fromhex('5a060002'))
+        with pytest.raises(RuntimeError, match='packet count'):
+            await printer.transfer(send, queue, packets, delay=0, timeout=1)
+        assert sent == [printer.print_marker(1), packets[0]]
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('retry', [False, True])
+def test_paired_transfer_preserves_logical_indices_with_partial_acceptance(retry):
+    async def scenario():
+        queue=asyncio.Queue()
+        packets=printer.raster_packets(Image.new('1',(384,10),1))
+        sent=[]
+        async def send(frame):
+            if frame[0]==0x55:
+                index=int.from_bytes(frame[1:3],'big')
+                count=len(frame)//100
+                assert frame==b''.join(packets[index:index+count])
+                sent.append((index,count))
+                if retry and len(sent)==1:
+                    queue.put_nowait(b'\x5a\x08')
+                    queue.put_nowait(b'\x5a\x05\0\x02')
+                elif index+count==len(packets): queue.put_nowait(b'\x5a\x06\0\x05')
+            elif frame==printer.print_marker(5,end=True): queue.put_nowait(frame)
+        await printer.transfer(send,queue,packets,delay=0,timeout=2,batch_size=2)
+        assert sent==([(0,2),(1,2),(3,2)] if retry else [(0,2),(2,2),(4,1)])
+    asyncio.run(scenario())

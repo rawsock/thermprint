@@ -105,8 +105,10 @@ async def authenticate(send, queue, address):
     LOG.info("Authentication successful.")
 
 
-async def transfer(send, queue, packets, delay=0.04, timeout=30):
+async def transfer(send, queue, packets, delay=0.04, timeout=30, *, batch_size=1):
     """Send one job, honoring printer holds and one-based retry indices."""
+    if batch_size not in (1, 2):
+        raise ValueError('Raster batch size must be one or two negotiated frames')
     index = 0
     held = False
     retries = 0
@@ -130,7 +132,9 @@ async def transfer(send, queue, packets, delay=0.04, timeout=30):
                     requested = int.from_bytes(frame[2:4], "big") - 1
                     if not 0 <= requested < len(packets) or requested > index:
                         raise RuntimeError("Invalid retry index.")
-                    retries += 1
+                    # A hold/resume is normal buffer flow control, as in the
+                    # browser sender; only unsolicited retries consume the budget.
+                    if not held: retries += 1
                     if retries > 10:
                         raise RuntimeError("Too many retransmission requests.")
                     index, held = requested, False
@@ -140,6 +144,8 @@ async def transfer(send, queue, packets, delay=0.04, timeout=30):
                 elif frame[1] == 0x06:
                     if index != len(packets):
                         raise RuntimeError("Premature transfer-complete notification.")
+                    if len(frame) < 4 or int.from_bytes(frame[2:4], "big") != len(packets):
+                        raise RuntimeError("Transfer-complete packet count does not match this job.")
                     finished = True
                     break
             if finished:
@@ -147,8 +153,9 @@ async def transfer(send, queue, packets, delay=0.04, timeout=30):
             if held or index == len(packets):
                 await asyncio.sleep(0.02)
                 continue
-            await send(packets[index])
-            index += 1
+            count = min(batch_size, len(packets)-index)
+            await send(b''.join(packets[index:index+count]))
+            index += count
             if index % 30 == 0 or index == len(packets):
                 LOG.info("Sent %d/%d packets.", index, len(packets))
             await asyncio.sleep(delay)

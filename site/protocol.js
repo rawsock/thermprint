@@ -69,7 +69,7 @@ export async function grayscaleCommand(send, inbox, operation, height = 0, level
   if (response[3]) throw new Error('Grayscale printing was refused or interrupted. Check the printer and reconnect.');
   const rows = (response[8] << 8) | response[9];
   if (operation === 1 && (rows !== height || response[10] !== 1)) throw new Error('The printer did not arm the grayscale image.');
-  return { rows, flags: response[10] };
+  return { rows, flags: response[10], batchSize: response[11] === 2 ? 2 : 1 };
 }
 
 export function marker(count, end = false) {
@@ -126,8 +126,9 @@ export async function authenticate(send, inbox) {
 
 export async function transfer(send, inbox, packets, {
   onProgress = () => {}, onMessage = () => {}, delay = 40,
-  timeout = packets.length * 300 + 20000, settle = 100, adaptiveDelay = true,
+  timeout = packets.length * 300 + 20000, settle = 100, adaptiveDelay = true, batchSize = 1,
 } = {}) {
+  if (![1, 2].includes(batchSize)) throw new Error('Invalid raster batch size.');
   let index = 0, held = false, retries = 0;
   const deadline = Date.now() + timeout;
   await send(marker(packets.length));
@@ -172,8 +173,11 @@ export async function transfer(send, inbox, packets, {
     }
     if (finished) break;
     if (held || index === packets.length) { await sleep(20); continue; }
-    await send(packets[index]);
-    onProgress(++index, packets.length);
+    const count = Math.min(batchSize, packets.length - index);
+    const frame = count === 1 ? packets[index] : new Uint8Array([...packets[index], ...packets[index + 1]]);
+    await send(frame);
+    index += count;
+    onProgress(index, packets.length);
     if (delay) await sleep(delay);
   }
   await send(marker(packets.length, true));
@@ -258,7 +262,7 @@ export class Printer {
   async send(frame, response = false) {
     this.inbox.check();
     if (!this.device?.gatt.connected) throw new Error('Printer is disconnected.');
-    // Preserve the 100-byte application packet; splitting it changes the protocol.
+    // Raster frames are complete 100-byte units, paired only after negotiation.
     await bounded(response ? this.writer.writeValueWithResponse(frame) : this.writer.writeValueWithoutResponse(frame));
     this.inbox.check();
   }
@@ -284,13 +288,22 @@ export class Printer {
         await grayscaleCommand(frame => this.send(frame), this.inbox, 1, height, levels);
         // The ring's hold/retry protocol provides backpressure. Four packets
         // per row cannot retain binary's 40-ms delay or grow it on every hold.
-        callbacks = { delay: 0, ...callbacks, adaptiveDelay: false, timeout: height * 300 + 20000 };
+        callbacks = { delay: 0, ...callbacks, adaptiveDelay: false, timeout: height * 300 + 20000, batchSize: capability.batchSize };
       }
       // OS write-without-response completion can mean queued, not delivered.
       // Batches of 32 improved measured transfer throughput by 24% over 8 on
       // 2026-11-14. Bound the OS backlog and also drain the final partial batch.
       let queued = 0;
-      await transfer(frame => this.send(frame, nativeGray && frame[0] === 0x55 && (++queued % 32 === 0 || frame === packets.at(-1))), this.inbox, packets, callbacks);
+      await transfer(frame => {
+        let response = false;
+        if (nativeGray && frame[0] === 0x55) {
+          const count = frame.length / 100;
+          queued += count;
+          response = queued >= 32 || ((frame[1] << 8) | frame[2]) + count === packets.length;
+          if (response) queued = 0;
+        }
+        return this.send(frame, response);
+      }, this.inbox, packets, callbacks);
       if (nativeGray) {
         const deadline = Date.now() + height * 300 + 20000;
         while (true) {
