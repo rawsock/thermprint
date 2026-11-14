@@ -3,7 +3,7 @@ export default {
   'Black and white': 'Czarno-biały',
   'Native grayscale': 'Natywna skala szarości',
   'Tone count': 'Liczba odcieni',
-  'Native grayscale needs compatible firmware and prints more slowly. Its shades are approximate.': 'Natywna skala szarości wymaga zgodnego oprogramowania drukarki i drukuje wolniej. Odcienie są przybliżone.',
+  'Native grayscale needs compatible firmware. Tones adapt to each row for speed; enable dithering for smoother gradients. Shades are approximate.': 'Natywna skala szarości wymaga zgodnego oprogramowania drukarki. Odcienie są dobierane do każdego wiersza, aby przyspieszyć druk. Włącz dithering, aby uzyskać płynniejsze przejścia. Odcienie są przybliżone.',
   'This firmware does not support native grayscale. Choose Black and white.': 'To oprogramowanie drukarki nie obsługuje natywnej skali szarości. Wybierz druk czarno-biały.',
   'Invalid grayscale image size.': 'Nieprawidłowy rozmiar obrazu w skali szarości.',
   'Invalid grayscale tone.': 'Nieprawidłowy odcień szarości.',

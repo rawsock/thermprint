@@ -1,5 +1,5 @@
 import { WIDTH, MAX_HEIGHT } from './protocol.js';
-import { nativePalette } from './native-tones.js';
+import { nativePalette, nativeRowPalette } from './native-tones.js';
 
 export const FEED = 16;
 export const START_SPACE = 4;
@@ -72,22 +72,31 @@ function quantize(gray, width, height, { threshold = 160, dither = true, method 
   if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
   const last = levels - 1, step = 255 / last;
   const coverage = nativeGray ? nativePalette(levels).coverage : null;
+  let rowPalette = null;
   const brightness = tone => coverage ? 255 * (1 - coverage[tone]) : 255 - tone * step;
   const nearest = value => {
     if (!coverage) return Math.max(0, Math.min(last, Math.round((255 - value) / step)));
     if (value >= 255) return 0;
-    if (value <= 0) return last;
-    let low = 0, high = last;
+    if (value <= 0) return rowPalette ? rowPalette.at(-1) : last;
+    const toneAt = index => rowPalette ? rowPalette[index] : index;
+    let low = 0, high = rowPalette ? rowPalette.length - 1 : last;
     while (high - low > 1) {
       const middle = (low + high) >> 1;
-      if (brightness(middle) > value) low = middle; else high = middle;
+      if (brightness(toneAt(middle)) > value) low = middle; else high = middle;
     }
+    low = toneAt(low); high = toneAt(high);
     const tone = brightness(low) - value <= value - brightness(high) ? low : high;
     return coverage[tone] === 0 ? 0 : tone;
   };
   const ink = new Uint8Array(gray.length);
   if (!dither) {
-    for (let i = 0; i < gray.length; i++) ink[i] = levels === 2 ? Number(gray[i] < threshold) : nearest(gray[i]);
+    for (let y = 0; y < height; y++) {
+      if (nativeGray) rowPalette = nativeRowPalette(gray.subarray(y * width, (y + 1) * width), levels);
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        ink[i] = levels === 2 ? Number(gray[i] < threshold) : nearest(gray[i]);
+      }
+    }
     return ink;
   }
   const kernel = DIFFUSION[method];
@@ -95,6 +104,8 @@ function quantize(gray, width, height, { threshold = 160, dither = true, method 
   const work = gray.slice();
   let noise = 0x6d2b79f5;
   for (let y = 0; y < height; y++) {
+    if (nativeGray) rowPalette = nativeRowPalette(work.subarray(y * width, (y + 1) * width), levels,
+      gray.subarray(y * width, (y + 1) * width).some(value => value === 0));
     // Mirror the kernel on alternating rows to avoid a directional dot pattern.
     const direction = y % 2 ? -1 : 1;
     for (let x = direction === 1 ? 0 : width - 1; x >= 0 && x < width; x += direction) {
@@ -103,7 +114,8 @@ function quantize(gray, width, height, { threshold = 160, dither = true, method 
       // photo tones. Error diffusion still conserves the average ink density.
       noise = (Math.imul(noise, 1664525) + 1013904223) >>> 0;
       const jitter = method === 'stucki' ? (noise / 4294967296 - 0.5) * 32 / last : 0;
-      ink[i] = levels === 2 ? Number(work[i] < 127.5 + jitter) : nearest(work[i] - jitter);
+      ink[i] = nativeGray && (gray[i] === 0 || gray[i] === 255) ? (gray[i] === 0 ? last : 0)
+        : levels === 2 ? Number(work[i] < 127.5 + jitter) : nearest(work[i] - jitter);
       const error = (work[i] - brightness(ink[i])) / kernel.divisor;
       for (const [dx, dy, weight] of kernel.taps) {
         const nx = x + dx * direction, ny = y + dy;

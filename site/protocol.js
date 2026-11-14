@@ -60,10 +60,10 @@ export async function grayscaleCommand(send, inbox, operation, height = 0, level
   if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
   const request = new Uint8Array(12);
   request.set([0x5a, 0x0e, operation]);
-  if (operation === 1) request.set([2, levels - 1, 2, height >> 8, height & 255], 3);
+  if (operation === 1) request.set([3, levels - 1, 2, height >> 8, height & 255], 3);
   await send(request);
   const response = await inbox.opcode(0x0e);
-  if (response.length !== 12 || response[2] !== 2 || response[4] !== 0x47 || response[5] !== 0x52 || response[6] !== 255 || response[7] !== 2) {
+  if (response.length !== 12 || response[2] !== 3 || response[4] !== 0x47 || response[5] !== 0x52 || response[6] !== 255 || response[7] !== 2) {
     throw new Error('This firmware does not support native grayscale. Choose Black and white.');
   }
   if (response[3]) throw new Error('Grayscale printing was refused or interrupted. Check the printer and reconnect.');
