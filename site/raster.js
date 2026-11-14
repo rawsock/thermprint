@@ -1,4 +1,5 @@
 import { WIDTH, MAX_HEIGHT } from './protocol.js';
+import { nativePalette } from './native-tones.js';
 
 export const FEED = 16;
 export const START_SPACE = 4;
@@ -67,10 +68,23 @@ const DIFFUSION = {
   atkinson: { divisor: 8, taps: [[1,0,1], [2,0,1], [-1,1,1], [0,1,1], [1,1,1], [0,2,1]] },
 };
 
-function quantize(gray, width, height, { threshold = 160, dither = true, method = 'stucki', levels = 2 } = {}) {
+function quantize(gray, width, height, { threshold = 160, dither = true, method = 'stucki', levels = 2, nativeGray = false } = {}) {
   if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
   const last = levels - 1, step = 255 / last;
-  const nearest = value => Math.max(0, Math.min(last, Math.round((255 - value) / step)));
+  const coverage = nativeGray ? nativePalette(levels).coverage : null;
+  const brightness = tone => coverage ? 255 * (1 - coverage[tone]) : 255 - tone * step;
+  const nearest = value => {
+    if (!coverage) return Math.max(0, Math.min(last, Math.round((255 - value) / step)));
+    if (value >= 255) return 0;
+    if (value <= 0) return last;
+    let low = 0, high = last;
+    while (high - low > 1) {
+      const middle = (low + high) >> 1;
+      if (brightness(middle) > value) low = middle; else high = middle;
+    }
+    const tone = brightness(low) - value <= value - brightness(high) ? low : high;
+    return coverage[tone] === 0 ? 0 : tone;
+  };
   const ink = new Uint8Array(gray.length);
   if (!dither) {
     for (let i = 0; i < gray.length; i++) ink[i] = levels === 2 ? Number(gray[i] < threshold) : nearest(gray[i]);
@@ -90,7 +104,7 @@ function quantize(gray, width, height, { threshold = 160, dither = true, method 
       noise = (Math.imul(noise, 1664525) + 1013904223) >>> 0;
       const jitter = method === 'stucki' ? (noise / 4294967296 - 0.5) * 32 / last : 0;
       ink[i] = levels === 2 ? Number(work[i] < 127.5 + jitter) : nearest(work[i] - jitter);
-      const error = (work[i] - (255 - ink[i] * step)) / kernel.divisor;
+      const error = (work[i] - brightness(ink[i])) / kernel.divisor;
       for (const [dx, dy, weight] of kernel.taps) {
         const nx = x + dx * direction, ny = y + dy;
         if (nx >= 0 && nx < width && ny < height) work[ny * width + nx] += error * weight;
@@ -106,7 +120,7 @@ export function monochrome(rgba, width, height, options = {}) {
 
 export function preparePrint(rgba, height, { feedScale = DEFAULT_FEED_SCALE, nativeGray = false, levels = 256, ...options } = {}) {
   levels = nativeGray ? levels : 2;
-  options = { ...options, levels };
+  options = { ...options, levels, nativeGray };
   const rows = calibratedRows(height, feedScale) * (nativeGray ? 2 : 1);
   const metadata = { levels, nativeGray, artworkHeight: height };
   const gray = grayscale(rgba, WIDTH, height, options);
@@ -185,28 +199,30 @@ export function imageCanvas(image, scaleY = DEFAULT_FEED_SCALE, { startSpace = S
   return canvas;
 }
 
-export function drawInk(canvas, ink, height, levels = 2) {
+export function drawInk(canvas, ink, height, levels = 2, nativeGray = false) {
   canvas.width = WIDTH;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   const pixels = ctx.createImageData(WIDTH, height);
+  const coverage = nativeGray ? nativePalette(levels).coverage : Array.from({ length: levels }, (_, i) => i / (levels - 1));
   for (let i = 0; i < ink.length; i++) {
-    pixels.data.fill(Math.round(255 * (1 - ink[i] / (levels - 1))), i * 4, i * 4 + 3);
+    pixels.data.fill(Math.round(255 * (1 - coverage[ink[i]])), i * 4, i * 4 + 3);
     pixels.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(pixels, 0, 0);
 }
 
-export function drawPreview(canvas, ink, height, soft = true, levels = 2) {
-  if (!soft) { drawInk(canvas, ink, height, levels); return; }
+export function drawPreview(canvas, ink, height, soft = true, levels = 2, nativeGray = false) {
+  if (!soft) { drawInk(canvas, ink, height, levels, nativeGray); return; }
   canvas.width = WIDTH;
   canvas.height = height;
   const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(WIDTH, height);
   const horizontal = new Float32Array(ink.length);
+  const tones = nativeGray ? nativePalette(levels).coverage : Array.from({ length: levels }, (_, i) => i / (levels - 1));
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < WIDTH; x++) {
       const i = y * WIDTH + x;
-      horizontal[i] = (ink[y * WIDTH + Math.max(0, x - 1)] + 6 * ink[i] + ink[y * WIDTH + Math.min(WIDTH - 1, x + 1)]) / 8;
+      horizontal[i] = (tones[ink[y * WIDTH + Math.max(0, x - 1)]] + 6 * tones[ink[i]] + tones[ink[y * WIDTH + Math.min(WIDTH - 1, x + 1)]]) / 8;
     }
   }
   // A mild optical blend and softer ink tone approximate paper at screen size.
@@ -215,7 +231,7 @@ export function drawPreview(canvas, ink, height, soft = true, levels = 2) {
     for (let x = 0; x < WIDTH; x++) {
       const i = y * WIDTH + x;
       const coverage = (horizontal[Math.max(0, y - 1) * WIDTH + x] + 6 * horizontal[i] + horizontal[Math.min(height - 1, y + 1) * WIDTH + x]) / 8;
-      pixels.data.fill(Math.round(255 - 231 * coverage / (levels - 1)), i * 4, i * 4 + 3);
+      pixels.data.fill(Math.round(255 - 231 * coverage), i * 4, i * 4 + 3);
       pixels.data[i * 4 + 3] = 255;
     }
   }

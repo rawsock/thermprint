@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { monochrome, wrapText, preparePrint, calibrateInk } from '../site/raster.js';
+import { nativePalette } from '../site/native-tones.js';
 
 test('transparent pixels composite onto white and opaque black becomes ink', () => {
   assert.deepEqual([...monochrome(Uint8Array.of(0,0,0,0, 0,0,0,255, 255,255,255,255), 3, 1)], [0,1,0]);
@@ -56,11 +57,36 @@ test('grayscale sampling doubles rows without stretching preview or white margin
     assert.equal(job.artworkInk.length,384*20);
     assert.equal(job.levels,levels);
     assert.equal(job.nativeGray,true);
-    assert.deepEqual([...new Set(job.ink)].sort((a,b)=>a-b),Array.from({length:levels},(_,i)=>i));
+    assert.ok(job.ink.every(tone => tone < levels));
+    assert.ok(job.ink.some(tone => nativePalette(levels).doses[tone] === 255));
     assert.ok(job.ink.slice(0,384*2).every(tone => tone===0));
     assert.ok(job.ink.slice(-384*2).every(tone => tone===0));
   }
   assert.throws(() => preparePrint(grayPixels(384,1536,128),1536,{nativeGray:true,feedScale:1.4}),/too long/);
+});
+
+test('calibrated diffusion conserves measured tone, including the minimum-heat gap', () => {
+  for (const levels of [2,3,4,5,8,31,128,256]) for (const method of ['stucki','atkinson']) {
+    const palette = nativePalette(levels);
+    for (const value of [0,32,96,128,192,224,248,255]) {
+      const pixels = grayPixels(96,96,value);
+      const settings = { levels, nativeGray: true, method, contrast: 100, sharpen: false };
+      const ink = monochrome(pixels,96,96,settings);
+      assert.ok(ink.every(tone => tone < levels));
+      assert.deepEqual(ink,monochrome(pixels,96,96,settings));
+      if (value === 0 || value === 255) assert.ok(ink.every(tone => tone === (value ? 0 : levels-1)));
+      if (method === 'stucki') {
+        const mean = ink.reduce((sum,tone) => sum + palette.coverage[tone],0)/ink.length;
+        assert.ok(Math.abs(mean - (1-value/255)) < 0.025, `${levels} tones, brightness ${value}: ${mean}`);
+      }
+    }
+  }
+  // No-dither highlights choose paper; diffusion can mix the minimum available heat with paper.
+  const pixels = grayPixels(96,96,240);
+  const settings = { nativeGray:true, levels:256, contrast:100, sharpen:false };
+  const palette = nativePalette(256);
+  assert.ok(monochrome(pixels,96,96,{...settings,dither:false}).every(tone => palette.doses[tone] === 0));
+  assert.ok(monochrome(pixels,96,96,settings).some(tone => palette.doses[tone] === 1));
 });
 
 test('photo dithering preserves the average tone through highlights, midtones and shadows', () => {

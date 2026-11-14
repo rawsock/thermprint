@@ -181,7 +181,9 @@ test('native grayscale GATT job negotiates, arms exact rows and checks final com
   await printer.print(Uint8Array.from({length:384*3},(_,i)=>i%31),3,{...options,nativeGray:true,levels:31});
   assert.ok(mock.sent.includes('5a0e01021e02000300000000'));
   assert.equal(mock.sent.filter(frame=>frame.startsWith('55')).length,13);
-  assert.deepEqual(mock.acknowledged,[mock.sent.filter(frame=>frame.startsWith('55'))[7]]);
+  assert.deepEqual(mock.sent.filter(frame=>frame.startsWith('55')),
+    grayscalePackets(Uint8Array.from({length:384*3},(_,i)=>i%31),3,31,true).map(hex));
+  assert.deepEqual(mock.acknowledged,[mock.sent.filter(frame=>frame.startsWith('55')).at(-1)]);
   assert.equal(mock.sent.at(-1),'5a0e03000000000000000000');
   assert.equal(mock.sent.filter(frame=>frame.startsWith('5a0e03')).length,2,'Wait until final feed finishes');
   await printer.print(new Uint8Array(384*4),4,options);
@@ -198,11 +200,12 @@ test('capability and arm replies must match format, row count and flags', async 
 });
 
 test('native transfer drains a bounded OS transmit queue without a pacing sleep', async () => {
-  const mock=mockBluetooth({gray:true,rasterQueueLimit:16}), printer=new Printer();
+  const mock=mockBluetooth({gray:true,rasterQueueLimit:32}), printer=new Printer();
   await printer.connect(mock.bluetooth);
   await printer.print(new Uint8Array(384*80),80,{...options,nativeGray:true});
   assert.equal(mock.sent.filter(frame=>frame.startsWith('55')).length,321);
-  assert.ok(mock.acknowledged.length > 1);
+  const raster=mock.sent.filter(frame=>frame.startsWith('55'));
+  assert.deepEqual(mock.acknowledged,raster.filter((_,i)=>(i+1)%32===0 || i===raster.length-1));
   printer.disconnect();
 });
 

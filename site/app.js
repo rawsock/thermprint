@@ -99,7 +99,7 @@ function render() {
       if (!result.ink.some(Boolean)) throw new Error(mode === 'draw' ? 'Draw something on the canvas to get started.' : 'This preview is blank. Add darker content or increase the ink balance.');
       const soft = $('preview-style').value === 'paper';
       $('preview-canvas').classList.toggle('exact-dots', !soft);
-      drawPreview($('preview-canvas'), result.artworkInk, source.height, soft, result.levels);
+      drawPreview($('preview-canvas'), result.artworkInk, source.height, soft, result.levels, result.nativeGray);
       preview = result;
     }
   } catch (error) {
@@ -202,7 +202,7 @@ $('stop').addEventListener('click', () => { stopped = true; printer.disconnect()
 $('download').addEventListener('click', () => {
   if (!preview) return;
   const artwork = document.createElement('canvas');
-  drawInk(artwork, preview.artworkInk, preview.artworkHeight, preview.levels);
+  drawInk(artwork, preview.artworkInk, preview.artworkHeight, preview.levels, preview.nativeGray);
   artwork.toBlob(blob => {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
