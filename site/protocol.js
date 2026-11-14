@@ -32,13 +32,13 @@ export function rasterPackets(ink, height) {
   return packets;
 }
 
-export function grayscalePackets(ink, height, levels = 256, calibrated = false) {
+export function grayscalePackets(ink, height, levels = 256) {
   if (!Number.isInteger(height) || height < 1 || height > 2 * MAX_HEIGHT || ink.length !== WIDTH * height) {
     throw new Error('Invalid grayscale image size.');
   }
   if (!Number.isInteger(levels) || levels < 2 || levels > 256) throw new Error('Tone count must be an integer from 2 to 256.');
   // Raw diagnostics retain direct dose selection; image jobs use the measured palette.
-  const doses = calibrated ? nativePalette(levels).doses : Array.from({ length: levels }, (_, i) => Math.round(i * 255 / (levels - 1)));
+  const doses = nativePalette(levels).doses;
   // Eight dose bitplanes, two per packet. The final packet is a completion guard.
   const packets = Array.from({ length: height * 4 + 1 }, (_, index) => {
     const frame = new Uint8Array(100);
@@ -267,7 +267,7 @@ export class Printer {
     if (this.busy) throw new Error('A print is already in progress.');
     if (!this.ready) throw new Error('Connect the printer first.');
     if (this.status?.error) throw new Error(this.status.error);
-    const packets = nativeGray ? grayscalePackets(ink, height, levels, true) : rasterPackets(ink, height);
+    const packets = nativeGray ? grayscalePackets(ink, height, levels) : rasterPackets(ink, height);
     this.inbox.frames.length = 0;
     this.busy = true;
     try {
